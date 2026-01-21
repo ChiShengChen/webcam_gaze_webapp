@@ -1,0 +1,36 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <link rel="icon" type="image/svg+xml" href="/vite.svg" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Webcam Gaze Tracker</title>
+
+  </head>
+  <body>
+    <div class="container">
+      <h1>Webcam Gaze Tracker</h1>
+      <p>This application uses your webcam to track your gaze. Please follow the steps below.</p>
+      
+      <div id="calibration-instructions">
+        <h2>Calibration</h2>
+        <p>Please click on each of the circles on the screen. Do this a few times until the red dot follows your gaze. You can click the button below to start over.</p>
+        <button id="start-calibration">Start Calibration</button>
+      </div>
+
+      <div id="gaze-dot"></div>
+      <div id="calibration-dots">
+        <div class="calibration-dot" style="top: 5%; left: 5%;"></div>
+        <div class="calibration-dot" style="top: 5%; left: 50%;"></div>
+        <div class="calibration-dot" style="top: 5%; left: 95%;"></div>
+        <div class="calibration-dot" style="top: 50%; left: 5%;"></div>
+        <div class="calibration-dot" style="top: 50%; left: 50%;"></div>
+        <div class="calibration-dot" style="top: 50%; left: 95%;"></div>
+        <div class="calibration-dot" style="top: 95%; left: 5%;"></div>
+        <div class="calibration-dot" style="top: 95%; left: 50%;"></div>
+        <div class="calibration-dot" style="top: 95%; left: 95%;"></div>
+      </div>
+    </div>
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>
