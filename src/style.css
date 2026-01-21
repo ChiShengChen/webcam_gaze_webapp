@@ -537,3 +537,293 @@ kbd {
 #canvas-container.has-image::before {
   display: none;
 }
+
+/* ==================== Video Mode Styles ==================== */
+#video-mode {
+  padding-top: 60px;
+}
+
+.video-container {
+  display: flex;
+  width: 100vw;
+  height: calc(100vh - 60px);
+}
+
+/* Left Panel */
+#video-controls {
+  width: 320px;
+  min-width: 320px;
+  background: #1a1a1a;
+  padding: 20px;
+  overflow-y: auto;
+  border-right: 1px solid #333;
+}
+
+#video-controls h2 {
+  margin-top: 0;
+  color: #ff9800;
+}
+
+/* Video Upload */
+#video-upload {
+  width: 100%;
+  padding: 10px;
+  background: #2a2a2a;
+  border: 1px dashed #444;
+  border-radius: 8px;
+  color: #fff;
+  cursor: pointer;
+}
+
+#video-info {
+  margin-top: 10px;
+  padding: 8px;
+  background: #2a2a2a;
+  border-radius: 4px;
+  font-size: 12px;
+  display: none;
+}
+
+#video-info.has-video {
+  display: block;
+}
+
+/* Audio Recording */
+#audio-status {
+  padding: 8px;
+  background: #2a2a2a;
+  border-radius: 4px;
+  margin-bottom: 10px;
+  font-size: 12px;
+}
+
+#mic-status {
+  color: #888;
+}
+
+#mic-status.connected {
+  color: #4CAF50;
+}
+
+#mic-status.error {
+  color: #f44336;
+}
+
+#connect-mic-btn {
+  width: 100%;
+  margin-bottom: 10px;
+}
+
+#audio-visualizer {
+  height: 40px;
+  background: #2a2a2a;
+  border-radius: 4px;
+  overflow: hidden;
+}
+
+#audio-level-canvas {
+  width: 100%;
+  height: 100%;
+}
+
+/* Recording Controls */
+#recording-status {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 10px;
+  background: #2a2a2a;
+  border-radius: 4px;
+  margin-bottom: 10px;
+}
+
+#record-indicator {
+  font-weight: bold;
+  color: #888;
+}
+
+#record-indicator.recording {
+  color: #f44336;
+  animation: pulse 1s infinite;
+}
+
+@keyframes pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.5; }
+}
+
+#record-time {
+  font-family: monospace;
+  font-size: 14px;
+}
+
+#video-playback-controls {
+  display: flex;
+  gap: 5px;
+}
+
+#video-playback-controls button {
+  flex: 1;
+  padding: 8px;
+  font-size: 12px;
+}
+
+#video-play-btn {
+  background: #4CAF50;
+}
+
+#video-pause-btn {
+  background: #ff9800;
+}
+
+#video-stop-btn {
+  background: #f44336;
+}
+
+/* Video Gaze Status */
+#video-gaze-status {
+  display: flex;
+  justify-content: space-between;
+  padding: 8px;
+  background: #2a2a2a;
+  border-radius: 4px;
+  font-family: monospace;
+  font-size: 12px;
+  margin-bottom: 10px;
+}
+
+#gaze-point-count {
+  padding: 8px;
+  background: #2a2a2a;
+  border-radius: 4px;
+  font-size: 12px;
+  text-align: center;
+}
+
+/* Export Buttons */
+#export-video-annotation-btn,
+#export-video-audio-btn,
+#export-video-all-btn {
+  width: 100%;
+  margin-bottom: 8px;
+}
+
+#export-video-annotation-btn {
+  background: #4CAF50;
+}
+
+#export-video-audio-btn {
+  background: #2196F3;
+}
+
+#export-video-all-btn {
+  background: #9C27B0;
+}
+
+/* Session Info */
+#session-info {
+  padding: 10px;
+  background: #2a2a2a;
+  border-radius: 4px;
+  font-size: 12px;
+}
+
+#session-info div {
+  margin-bottom: 5px;
+}
+
+#session-info span {
+  color: #888;
+}
+
+/* Right Panel - Video Workspace */
+#video-workspace {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  background: #0a0a0a;
+  overflow: hidden;
+}
+
+#video-player-container {
+  flex: 1;
+  position: relative;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  overflow: hidden;
+}
+
+#annotation-video {
+  max-width: 100%;
+  max-height: calc(100vh - 160px);
+  background: #000;
+}
+
+#video-gaze-overlay {
+  position: absolute;
+  top: 0;
+  left: 0;
+  pointer-events: none;
+}
+
+#video-gaze-cursor {
+  position: absolute;
+  width: 30px;
+  height: 30px;
+  border: 3px solid #ff9800;
+  border-radius: 50%;
+  pointer-events: none;
+  display: none;
+  transform: translate(-50%, -50%);
+  box-shadow: 0 0 15px rgba(255, 152, 0, 0.6);
+}
+
+#video-gaze-cursor::before {
+  content: '';
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 8px;
+  height: 8px;
+  background: #ff9800;
+  border-radius: 50%;
+  transform: translate(-50%, -50%);
+}
+
+/* Timeline */
+#video-timeline {
+  height: 80px;
+  background: #1a1a1a;
+  border-top: 1px solid #333;
+  position: relative;
+  padding: 10px;
+}
+
+#timeline-canvas {
+  width: 100%;
+  height: 40px;
+  background: #2a2a2a;
+  border-radius: 4px;
+}
+
+#timeline-markers {
+  position: absolute;
+  top: 10px;
+  left: 10px;
+  right: 10px;
+  height: 40px;
+  pointer-events: none;
+}
+
+/* Video placeholder */
+#video-player-container::before {
+  content: 'Upload a video to start annotation';
+  position: absolute;
+  color: #666;
+  font-size: 18px;
+}
+
+#video-player-container.has-video::before {
+  display: none;
+}

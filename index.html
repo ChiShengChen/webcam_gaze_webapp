@@ -11,6 +11,7 @@
     <div id="mode-toggle">
       <button id="tracker-mode-btn" class="mode-btn active">Gaze Tracker</button>
       <button id="label-mode-btn" class="mode-btn">Label Mode</button>
+      <button id="video-mode-btn" class="mode-btn">Video Mode</button>
     </div>
 
     <!-- Gaze Tracker Mode -->
@@ -111,6 +112,86 @@
             <canvas id="image-canvas"></canvas>
             <canvas id="mask-canvas"></canvas>
             <div id="gaze-cursor"></div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Video Mode -->
+    <div id="video-mode" class="mode-container" style="display: none;">
+      <div class="video-container">
+        <!-- Left Panel: Controls -->
+        <div id="video-controls">
+          <h2>Video Annotation Tool</h2>
+          
+          <div class="control-section">
+            <h3>1. Load Video</h3>
+            <input type="file" id="video-upload" accept="video/*" />
+            <div id="video-info"></div>
+          </div>
+          
+          <div class="control-section">
+            <h3>2. Audio Recording</h3>
+            <div id="audio-status">
+              <span id="mic-status">Microphone: Not connected</span>
+            </div>
+            <button id="connect-mic-btn">Connect Microphone</button>
+            <div id="audio-visualizer">
+              <canvas id="audio-level-canvas"></canvas>
+            </div>
+          </div>
+          
+          <div class="control-section">
+            <h3>3. Recording Controls</h3>
+            <p class="hint">Play video to start recording gaze + audio</p>
+            <div id="recording-status">
+              <span id="record-indicator">● Ready</span>
+              <span id="record-time">00:00:00</span>
+            </div>
+            <div id="video-playback-controls">
+              <button id="video-play-btn" disabled>▶ Play & Record</button>
+              <button id="video-pause-btn" disabled>⏸ Pause</button>
+              <button id="video-stop-btn" disabled>⏹ Stop</button>
+            </div>
+          </div>
+          
+          <div class="control-section">
+            <h3>4. Gaze Tracking</h3>
+            <div id="video-gaze-status">
+              <span id="video-gaze-coords">Gaze: (-, -)</span>
+              <span id="video-frame-info">Frame: -</span>
+            </div>
+            <div id="gaze-point-count">Points recorded: 0</div>
+          </div>
+          
+          <div class="control-section">
+            <h3>5. Export</h3>
+            <button id="export-video-annotation-btn" disabled>Export Annotation (JSON)</button>
+            <button id="export-video-audio-btn" disabled>Export Audio (WebM)</button>
+            <button id="export-video-all-btn" disabled>Export All (ZIP)</button>
+          </div>
+          
+          <div class="control-section">
+            <h3>Session Info</h3>
+            <div id="session-info">
+              <div>Video: <span id="session-video-name">-</span></div>
+              <div>Duration: <span id="session-duration">-</span></div>
+              <div>Gaze points: <span id="session-gaze-count">0</span></div>
+              <div>Audio: <span id="session-audio-status">Not recorded</span></div>
+            </div>
+          </div>
+        </div>
+        
+        <!-- Right Panel: Video Player -->
+        <div id="video-workspace">
+          <div id="video-player-container">
+            <video id="annotation-video" crossorigin="anonymous"></video>
+            <canvas id="video-gaze-overlay"></canvas>
+            <div id="video-gaze-cursor"></div>
+          </div>
+          <div id="video-timeline">
+            <canvas id="timeline-canvas"></canvas>
+            <div id="timeline-markers"></div>
           </div>
         </div>
       </div>

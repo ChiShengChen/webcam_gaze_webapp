@@ -1,10 +1,12 @@
 import './style.css';
 import webgazer from 'webgazer';
 import { LabelMode } from './labelMode';
+import { VideoMode } from './videoMode';
 
 // Current mode
-let currentMode: 'tracker' | 'label' = 'tracker';
+let currentMode: 'tracker' | 'label' | 'video' = 'tracker';
 let labelMode: LabelMode | null = null;
+let videoMode: VideoMode | null = null;
 let webgazerStarted = false;
 
 window.onload = function() {
@@ -12,8 +14,10 @@ window.onload = function() {
     const modeToggle = document.getElementById('mode-toggle')!;
     const trackerModeBtn = document.getElementById('tracker-mode-btn')!;
     const labelModeBtn = document.getElementById('label-mode-btn')!;
+    const videoModeBtn = document.getElementById('video-mode-btn')!;
     const trackerModeContainer = document.getElementById('tracker-mode')!;
     const labelModeContainer = document.getElementById('label-mode')!;
+    const videoModeContainer = document.getElementById('video-mode')!;
     
     // Gaze Tracker elements
     const gazeDot = document.getElementById('gaze-dot')!;
@@ -35,34 +39,37 @@ window.onload = function() {
     let isHeatmapVisible = true;
 
     // ==================== Mode Switching ====================
-    function switchMode(mode: 'tracker' | 'label') {
+    function switchMode(mode: 'tracker' | 'label' | 'video') {
         currentMode = mode;
         
         // Update button states
         trackerModeBtn.classList.toggle('active', mode === 'tracker');
         labelModeBtn.classList.toggle('active', mode === 'label');
+        videoModeBtn.classList.toggle('active', mode === 'video');
         
         // Show/hide containers
         trackerModeContainer.style.display = mode === 'tracker' ? 'block' : 'none';
         labelModeContainer.style.display = mode === 'label' ? 'block' : 'none';
+        videoModeContainer.style.display = mode === 'video' ? 'block' : 'none';
         
-        // Hide gaze dot and heatmap in label mode (we use different cursor)
-        if (mode === 'label') {
+        // Handle gaze dot and heatmap visibility
+        if (mode === 'tracker') {
+            if (webgazerStarted) {
+                gazeDot.style.display = 'block';
+                heatmapContainer.style.display = 'block';
+                webgazer.showVideoPreview(true);
+            }
+        } else {
             gazeDot.style.display = 'none';
             heatmapContainer.style.display = 'none';
-            // Hide webgazer video preview in label mode
             if (webgazerStarted) {
                 webgazer.showVideoPreview(false);
             }
-        } else if (webgazerStarted) {
-            gazeDot.style.display = 'block';
-            heatmapContainer.style.display = 'block';
-            // Show webgazer video preview in tracker mode
-            webgazer.showVideoPreview(true);
         }
     }
     
     trackerModeBtn.onclick = () => switchMode('tracker');
+    
     labelModeBtn.onclick = async () => {
         switchMode('label');
         
@@ -74,6 +81,15 @@ window.onload = function() {
                 modelStatus.className = type;
             });
             await labelMode.initialize();
+        }
+    };
+    
+    videoModeBtn.onclick = () => {
+        switchMode('video');
+        
+        // Initialize video mode if not already
+        if (!videoMode) {
+            videoMode = new VideoMode();
         }
     };
 
@@ -207,6 +223,9 @@ window.onload = function() {
             } else if (currentMode === 'label' && labelMode) {
                 // Update label mode gaze cursor
                 labelMode.updateGazePosition(x, y);
+            } else if (currentMode === 'video' && videoMode) {
+                // Update video mode gaze cursor
+                videoMode.updateGazePosition(x, y);
             }
         });
     }
@@ -228,7 +247,7 @@ window.onload = function() {
                     heatmapContainer.style.display = 'block';
                     // Show mode toggle after calibration
                     modeToggle.style.display = 'flex';
-                    alert("Calibration complete! The red dot will now follow your gaze.\n\nYou can now switch to Label Mode to use gaze-based image labeling.");
+                    alert("Calibration complete! The red dot will now follow your gaze.\n\nYou can now switch to Label Mode or Video Mode.");
                     startGazeListener();
                 }
             };

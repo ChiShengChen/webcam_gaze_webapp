@@ -1,6 +1,10 @@
-# Webcam Gaze Tracker & Gaze Label Tool
+# Webcam Gaze Tracker, Gaze Label Tool & Video Annotation Tool
 
-A web application that uses your webcam to track your eye gaze in real-time, with an integrated **Gaze-based Image Labeling Tool** powered by SAM (Segment Anything Model). Built with WebGazer.js, ONNX Runtime, and Vite.
+A web application that uses your webcam to track your eye gaze in real-time, featuring:
+- **Gaze-based Image Labeling** powered by SAM (Segment Anything Model)
+- **Video Annotation Mode** for recording gaze and audio commentary on videos
+
+Built with WebGazer.js, ONNX Runtime Web, and Vite.
 
 ## Demo
 
@@ -22,7 +26,7 @@ https://github.com/user-attachments/assets/1917dd53-f225-4207-8f77-b37d2857f804
 - **Real-time gaze heatmap** - visualizes where you look most frequently
 - Video preview to ensure proper face positioning
 
-### Label Mode (NEW)
+### Label Mode
 - **Gaze-based image labeling** - look at objects and press Space to segment
 - **SAM (Segment Anything Model)** integration via ONNX Runtime Web
 - **Multi-label support** - create and manage multiple label categories with custom colors
@@ -32,6 +36,16 @@ https://github.com/user-attachments/assets/1917dd53-f225-4207-8f77-b37d2857f804
 - **Export formats**:
   - COCO JSON (standard format for instance segmentation)
   - YOLO TXT (bounding box format for object detection)
+
+### Video Mode (NEW)
+- **Video annotation with gaze tracking** - watch videos while your gaze is recorded
+- **Audio commentary recording** - record verbal descriptions via microphone
+- **Real-time gaze visualization** - cyan dot shows where you're looking on the video
+- **Timeline heatmap** - visualizes gaze density across video duration
+- **Frame-accurate timestamps** - gaze points include frame numbers and timestamps
+- **Export formats**:
+  - JSON (gaze annotations with timestamps, coordinates, and metadata)
+  - WebM (audio recording)
 
 ## Prerequisites
 
@@ -100,6 +114,66 @@ npm install
 | **Export COCO** | Download annotations in COCO JSON format |
 | **Export YOLO** | Download annotations in YOLO TXT format |
 
+### Video Mode Usage
+
+1. Complete gaze calibration first (in Gaze Tracker mode)
+2. Click **"Video Mode"** button at the top of the page
+3. **Upload a video** (MP4, WebM, or other supported formats)
+4. Click **"Connect Microphone"** and allow microphone access
+5. Click **"Play & Record"** to start:
+   - Video begins playing
+   - Gaze tracking starts recording
+   - Audio recording begins (if microphone connected)
+6. **Watch the video** - your gaze position is tracked in real-time
+7. **Speak your observations** - audio is recorded for later review
+8. Click **"Stop Recording"** when finished
+9. **Review the timeline** - shows gaze density across video duration
+10. **Export** your data:
+    - **Export Gaze JSON** - download gaze annotations
+    - **Export Audio** - download audio recording (WebM)
+
+### Video Mode Controls
+
+| Control | Function |
+|---------|----------|
+| **Connect Microphone** | Enable audio recording (shows waveform visualizer) |
+| **Play & Record** | Start video playback and gaze/audio recording |
+| **Stop Recording** | End recording session |
+| **Export Gaze JSON** | Download gaze data with timestamps and coordinates |
+| **Export Audio** | Download recorded audio as WebM file |
+
+### Video Mode Export Format (JSON)
+
+```json
+{
+  "videoName": "example.mp4",
+  "videoDuration": 120.5,
+  "videoWidth": 1920,
+  "videoHeight": 1080,
+  "frameRate": 30,
+  "totalGazePoints": 3615,
+  "recordingDuration": 120.5,
+  "gazePoints": [
+    {
+      "timestamp": 1.533,
+      "frameNumber": 46,
+      "x": 0.523,
+      "y": 0.341,
+      "screenX": 1004,
+      "screenY": 368
+    }
+  ],
+  "hasAudio": true
+}
+```
+
+| Field | Description |
+|-------|-------------|
+| `timestamp` | Time in video (seconds) |
+| `frameNumber` | Estimated frame number |
+| `x`, `y` | Normalized coordinates (0-1) relative to video |
+| `screenX`, `screenY` | Absolute screen coordinates |
+
 ## Tips for Better Accuracy
 
 - Ensure good lighting on your face
@@ -112,7 +186,7 @@ npm install
 
 - [Vite](https://vitejs.dev/) - Build tool and dev server
 - [TypeScript](https://www.typescriptlang.org/) - Type-safe JavaScript
-- [WebGazer.js](https://webgazer.cs.brown.edu/) - Eye tracking library
+- [WebGazer.js](https://webgazer.cs.brown.edu/) ([GitHub](https://github.com/brownhci/WebGazer)) - Eye tracking library by Brown HCI
 - [ONNX Runtime Web](https://onnxruntime.ai/) - Browser-based ML inference
 - [MobileSAM](https://github.com/ChaoningZhang/MobileSAM) - Lightweight SAM model for segmentation
 
@@ -293,6 +367,40 @@ Gaze Point → SAM Decoder → Segmentation Mask → Annotation
 
 **Fallback**: If SAM fails to load, a flood-fill based segmentation is used as fallback.
 
+### Video Mode Architecture
+
+The Video Mode enables gaze-tracked video annotation with synchronized audio recording.
+
+**Pipeline:**
+```
+┌─────────────┐     ┌──────────────┐     ┌─────────────────┐
+│   Video     │────▶│   Gaze       │────▶│  Gaze Points    │
+│   Playback  │     │   Tracking   │     │  + Timestamps   │
+└─────────────┘     └──────────────┘     └────────┬────────┘
+                                                   │
+┌─────────────┐     ┌──────────────┐              │
+│  Microphone │────▶│ MediaRecorder│              │
+│   Input     │     │   (WebM)     │              ▼
+└─────────────┘     └──────────────┘     ┌─────────────────┐
+                                          │  Export JSON +  │
+                                          │  Audio WebM     │
+                                          └─────────────────┘
+```
+
+**Key Components:**
+- **Video Player**: HTML5 video element with overlay canvas for gaze visualization
+- **Gaze Tracking**: WebGazer.js predictions mapped to video coordinates
+- **Audio Recording**: MediaRecorder API capturing microphone input as WebM
+- **Timeline Visualization**: Canvas-based heatmap showing gaze distribution over time
+
+**Coordinate Mapping:**
+Gaze screen coordinates are transformed to normalized video coordinates (0-1) accounting for:
+- Video element position on screen
+- Video aspect ratio vs element size
+- Letterboxing/pillarboxing offsets
+
+**Use Case**: Designed for expert annotation tasks such as surgical video review, where professionals can watch procedures while their gaze patterns and verbal commentary are recorded for analysis.
+
 ## Project Structure
 
 ```
@@ -301,11 +409,13 @@ webcam_gaze_webapp/
 ├── src/
 │   ├── main.ts         # Application entry & mode switching
 │   ├── labelMode.ts    # Label mode logic & UI
+│   ├── videoMode.ts    # Video annotation mode logic & UI
 │   ├── sam.ts          # SAM model integration
 │   ├── style.css       # Styles
 │   └── webgazer.d.ts   # TypeScript declarations
 ├── assets/
-│   └── demo.mp4        # Demo video
+│   ├── demo.mp4        # Gaze tracker demo
+│   └── demo_label_mode.mp4  # Label mode demo
 ├── package.json
 └── tsconfig.json
 ```
