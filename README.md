@@ -1,25 +1,33 @@
-# Webcam Gaze Tracker
+# Webcam Gaze Tracker & Gaze Label Tool
 
-A web application that uses your webcam to track your eye gaze in real-time. Built with WebGazer.js and Vite.
+A web application that uses your webcam to track your eye gaze in real-time, with an integrated **Gaze-based Image Labeling Tool** powered by SAM (Segment Anything Model). Built with WebGazer.js, ONNX Runtime, and Vite.
 
 ## Demo
 
-<video src="assets/demo.mp4" controls width="100%"></video>
-
-
-
+### Gaze Tracker
 https://github.com/user-attachments/assets/50487841-efd8-45c1-9f74-c380a07010ed
-
 
 > *The red dot follows your gaze in real-time. The heatmap in the top-right corner shows gaze distribution.*
 
 ## Features
 
+### Gaze Tracker Mode
 - Real-time eye gaze tracking using webcam
 - 9-point calibration system for improved accuracy
 - Visual gaze indicator (red dot follows your gaze)
 - **Real-time gaze heatmap** - visualizes where you look most frequently
 - Video preview to ensure proper face positioning
+
+### Label Mode (NEW)
+- **Gaze-based image labeling** - look at objects and press Space to segment
+- **SAM (Segment Anything Model)** integration via ONNX Runtime Web
+- **Multi-label support** - create and manage multiple label categories with custom colors
+- **Color customization** - pick colors when creating labels, or change them anytime
+- **Label deselection** - prevent accidental segmentation by deselecting the current label
+- **Real-time segmentation masks** with color-coded visualization
+- **Export formats**:
+  - COCO JSON (standard format for instance segmentation)
+  - YOLO TXT (bounding box format for object detection)
 
 ## Prerequisites
 
@@ -63,6 +71,31 @@ npm install
 | **Hide/Show** | Toggle heatmap visibility |
 | **Clear** | Reset heatmap data |
 
+### Label Mode Usage
+
+1. Complete gaze calibration first (in Gaze Tracker mode)
+2. Click **"Label Mode"** button at the top of the page
+3. **Upload an image** using the file input
+4. **Add labels** with custom name and color (e.g., "car", "person", "tree")
+5. **Select a label** from the list (current label is shown above the list)
+6. **Look at the object** you want to segment
+7. Press **Space** to trigger segmentation
+8. The mask will appear with the label's color
+9. Repeat for all objects
+10. **Export** annotations in COCO JSON or YOLO TXT format
+
+### Label Mode Controls
+
+| Control | Function |
+|---------|----------|
+| **Space** | Segment object at current gaze position |
+| **Color Picker** | Choose color when adding a new label |
+| **Label Color Box** | Click to change an existing label's color |
+| **Deselect** | Deselect current label (prevents accidental segmentation) |
+| **Undo** | Remove last segmentation |
+| **Export COCO** | Download annotations in COCO JSON format |
+| **Export YOLO** | Download annotations in YOLO TXT format |
+
 ## Tips for Better Accuracy
 
 - Ensure good lighting on your face
@@ -76,6 +109,8 @@ npm install
 - [Vite](https://vitejs.dev/) - Build tool and dev server
 - [TypeScript](https://www.typescriptlang.org/) - Type-safe JavaScript
 - [WebGazer.js](https://webgazer.cs.brown.edu/) - Eye tracking library
+- [ONNX Runtime Web](https://onnxruntime.ai/) - Browser-based ML inference
+- [MobileSAM](https://github.com/ChaoningZhang/MobileSAM) - Lightweight SAM model for segmentation
 
 ## How It Works
 
@@ -236,15 +271,37 @@ Blue → Cyan → Green → Yellow → Red
 - Updates in real-time with each gaze prediction (~60fps)
 - Minimal performance impact due to efficient grid-based approach
 
+### SAM (Segment Anything Model)
+
+The Label Mode uses MobileSAM, a lightweight version of Meta's Segment Anything Model, running directly in the browser via ONNX Runtime Web.
+
+**Pipeline:**
+```
+Image Upload → SAM Encoder → Image Embedding (cached)
+                    ↓
+Gaze Point → SAM Decoder → Segmentation Mask → Annotation
+```
+
+**Model Details:**
+- **Encoder**: MobileSAM encoder (~25MB) - processes image once and caches embedding
+- **Decoder**: MobileSAM decoder (~4MB) - generates mask from point prompts
+- **Inference**: Runs on WebAssembly (WASM) with WebGL acceleration
+
+**Fallback**: If SAM fails to load, a flood-fill based segmentation is used as fallback.
+
 ## Project Structure
 
 ```
 webcam_gaze_webapp/
 ├── index.html          # Main HTML file
 ├── src/
-│   ├── main.ts         # Application logic
+│   ├── main.ts         # Application entry & mode switching
+│   ├── labelMode.ts    # Label mode logic & UI
+│   ├── sam.ts          # SAM model integration
 │   ├── style.css       # Styles
-│   └── webgazer.d.ts   # TypeScript declarations for WebGazer
+│   └── webgazer.d.ts   # TypeScript declarations
+├── assets/
+│   └── demo.mp4        # Demo video
 ├── package.json
 └── tsconfig.json
 ```
@@ -292,3 +349,5 @@ If you use this project or WebGazer.js, please cite:
 | Ridge Regression | Hoerl & Kennard (1970). *Ridge Regression: Biased Estimation for Nonorthogonal Problems*. Technometrics. | https://doi.org/10.1080/00401706.1970.10488634 |
 | BlazeFace | Bazarevsky et al. (2019). *BlazeFace: Sub-millisecond Neural Face Detection on Mobile GPUs*. CVPR Workshop. | https://arxiv.org/abs/1907.05047 |
 | WebGazer Dataset | Papoutsaki et al. (2018). *The Eye of the Typer: A Benchmark and Analysis of Gaze Behavior During Typing*. ETRA. | https://jeffhuang.com/Final_EyeTyper_ETRA18.pdf |
+| SAM | Kirillov et al. (2023). *Segment Anything*. ICCV. | https://arxiv.org/abs/2304.02643 |
+| MobileSAM | Zhang et al. (2023). *Faster Segment Anything: Towards Lightweight SAM for Mobile Applications*. | https://arxiv.org/abs/2306.14289 |

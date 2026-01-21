@@ -1,7 +1,21 @@
 import './style.css';
 import webgazer from 'webgazer';
+import { LabelMode } from './labelMode';
+
+// Current mode
+let currentMode: 'tracker' | 'label' = 'tracker';
+let labelMode: LabelMode | null = null;
+let webgazerStarted = false;
 
 window.onload = function() {
+    // Mode toggle elements
+    const modeToggle = document.getElementById('mode-toggle')!;
+    const trackerModeBtn = document.getElementById('tracker-mode-btn')!;
+    const labelModeBtn = document.getElementById('label-mode-btn')!;
+    const trackerModeContainer = document.getElementById('tracker-mode')!;
+    const labelModeContainer = document.getElementById('label-mode')!;
+    
+    // Gaze Tracker elements
     const gazeDot = document.getElementById('gaze-dot')!;
     const startCalibrationBtn = document.getElementById('start-calibration')!;
     const calibrationDotsContainer = document.getElementById('calibration-dots')!;
@@ -15,18 +29,59 @@ window.onload = function() {
     const clearHeatmapBtn = document.getElementById('clear-heatmap')!;
     const ctx = heatmapCanvas.getContext('2d')!;
 
-    // Heatmap data - stores intensity values for each grid cell
-    const GRID_SIZE = 50; // Number of cells in each dimension (higher = finer resolution)
+    // Heatmap data
+    const GRID_SIZE = 50;
     let heatmapData: number[][] = [];
     let isHeatmapVisible = true;
 
-    // Initialize heatmap
+    // ==================== Mode Switching ====================
+    function switchMode(mode: 'tracker' | 'label') {
+        currentMode = mode;
+        
+        // Update button states
+        trackerModeBtn.classList.toggle('active', mode === 'tracker');
+        labelModeBtn.classList.toggle('active', mode === 'label');
+        
+        // Show/hide containers
+        trackerModeContainer.style.display = mode === 'tracker' ? 'block' : 'none';
+        labelModeContainer.style.display = mode === 'label' ? 'block' : 'none';
+        
+        // Hide gaze dot and heatmap in label mode (we use different cursor)
+        if (mode === 'label') {
+            gazeDot.style.display = 'none';
+            heatmapContainer.style.display = 'none';
+            // Hide webgazer video preview in label mode
+            if (webgazerStarted) {
+                webgazer.showVideoPreview(false);
+            }
+        } else if (webgazerStarted) {
+            gazeDot.style.display = 'block';
+            heatmapContainer.style.display = 'block';
+            // Show webgazer video preview in tracker mode
+            webgazer.showVideoPreview(true);
+        }
+    }
+    
+    trackerModeBtn.onclick = () => switchMode('tracker');
+    labelModeBtn.onclick = async () => {
+        switchMode('label');
+        
+        // Initialize label mode if not already
+        if (!labelMode) {
+            const modelStatus = document.getElementById('model-status')!;
+            labelMode = new LabelMode((status, type) => {
+                modelStatus.textContent = status;
+                modelStatus.className = type;
+            });
+            await labelMode.initialize();
+        }
+    };
+
+    // ==================== Heatmap Functions ====================
     function initHeatmap() {
-        // Set canvas resolution (higher for finer grid)
         heatmapCanvas.width = 400;
         heatmapCanvas.height = 225;
         
-        // Initialize grid with zeros
         heatmapData = [];
         for (let i = 0; i < GRID_SIZE; i++) {
             heatmapData[i] = [];
@@ -38,23 +93,18 @@ window.onload = function() {
         drawHeatmap();
     }
 
-    // Update heatmap with new gaze position
     function updateHeatmap(x: number, y: number) {
         if (!isHeatmapVisible) return;
         
-        // Convert screen coordinates to grid coordinates
         const screenWidth = window.innerWidth;
         const screenHeight = window.innerHeight;
         
         const gridX = Math.floor((x / screenWidth) * GRID_SIZE);
         const gridY = Math.floor((y / screenHeight) * GRID_SIZE);
         
-        // Bounds check
         if (gridX >= 0 && gridX < GRID_SIZE && gridY >= 0 && gridY < GRID_SIZE) {
-            // Increase intensity at this position
             heatmapData[gridY][gridX] = Math.min(1, heatmapData[gridY][gridX] + 0.05);
             
-            // Also slightly increase neighboring cells for smoother heatmap
             for (let dy = -1; dy <= 1; dy++) {
                 for (let dx = -1; dx <= 1; dx++) {
                     const nx = gridX + dx;
@@ -69,57 +119,46 @@ window.onload = function() {
         drawHeatmap();
     }
 
-    // Draw the heatmap on canvas
     function drawHeatmap() {
         const cellWidth = heatmapCanvas.width / GRID_SIZE;
         const cellHeight = heatmapCanvas.height / GRID_SIZE;
         
-        // Clear canvas
         ctx.fillStyle = '#1a1a1a';
         ctx.fillRect(0, 0, heatmapCanvas.width, heatmapCanvas.height);
         
-        // Draw each cell
         for (let y = 0; y < GRID_SIZE; y++) {
             for (let x = 0; x < GRID_SIZE; x++) {
                 const intensity = heatmapData[y][x];
                 if (intensity > 0) {
-                    // Color gradient: blue -> green -> yellow -> red
                     const color = getHeatmapColor(intensity);
                     ctx.fillStyle = color;
                     ctx.fillRect(x * cellWidth, y * cellHeight, cellWidth, cellHeight);
                 }
             }
         }
-        
     }
 
-    // Get color based on intensity (0-1)
     function getHeatmapColor(intensity: number): string {
-        // Clamp intensity
         intensity = Math.max(0, Math.min(1, intensity));
         
         let r, g, b;
         
         if (intensity < 0.25) {
-            // Blue to Cyan
             const t = intensity / 0.25;
             r = 0;
             g = Math.round(255 * t);
             b = 255;
         } else if (intensity < 0.5) {
-            // Cyan to Green
             const t = (intensity - 0.25) / 0.25;
             r = 0;
             g = 255;
             b = Math.round(255 * (1 - t));
         } else if (intensity < 0.75) {
-            // Green to Yellow
             const t = (intensity - 0.5) / 0.25;
             r = Math.round(255 * t);
             g = 255;
             b = 0;
         } else {
-            // Yellow to Red
             const t = (intensity - 0.75) / 0.25;
             r = 255;
             g = Math.round(255 * (1 - t));
@@ -129,7 +168,6 @@ window.onload = function() {
         return `rgba(${r}, ${g}, ${b}, 0.8)`;
     }
 
-    // Toggle heatmap visibility
     toggleHeatmapBtn.onclick = () => {
         isHeatmapVisible = !isHeatmapVisible;
         if (isHeatmapVisible) {
@@ -141,31 +179,44 @@ window.onload = function() {
         }
     };
 
-    // Clear heatmap data
     clearHeatmapBtn.onclick = () => {
         initHeatmap();
     };
 
+    // ==================== Gaze Tracking ====================
     function startGazeListener() {
         gazeDot.style.display = 'block';
+        webgazerStarted = true;
+        
         webgazer.setGazeListener((data, _elapsedTime) => {
             if (data == null) {
                 return;
             }
-            gazeDot.style.left = `${data.x}px`;
-            gazeDot.style.top = `${data.y}px`;
             
-            // Update heatmap with gaze position
-            updateHeatmap(data.x, data.y);
+            // Always track gaze position
+            const x = data.x;
+            const y = data.y;
+            
+            if (currentMode === 'tracker') {
+                // Update gaze dot position
+                gazeDot.style.left = `${x}px`;
+                gazeDot.style.top = `${y}px`;
+                
+                // Update heatmap
+                updateHeatmap(x, y);
+            } else if (currentMode === 'label' && labelMode) {
+                // Update label mode gaze cursor
+                labelMode.updateGazePosition(x, y);
+            }
         });
     }
     
     function startCalibration() {
         calibrationClicks = 0;
         calibrationDotsContainer.style.display = 'block';
-        
-        // Hide heatmap during calibration
         heatmapContainer.style.display = 'none';
+        // Hide mode toggle during calibration
+        modeToggle.style.display = 'none';
         
         calibrationDots.forEach(dot => {
             dot.style.backgroundColor = 'yellow';
@@ -174,9 +225,10 @@ window.onload = function() {
                 dot.style.backgroundColor = 'green';
                 if (calibrationClicks >= calibrationDots.length) {
                     calibrationDotsContainer.style.display = 'none';
-                    // Show heatmap after calibration
                     heatmapContainer.style.display = 'block';
-                    alert("Calibration complete! The red dot will now follow your gaze.");
+                    // Show mode toggle after calibration
+                    modeToggle.style.display = 'flex';
+                    alert("Calibration complete! The red dot will now follow your gaze.\n\nYou can now switch to Label Mode to use gaze-based image labeling.");
                     startGazeListener();
                 }
             };
@@ -185,13 +237,10 @@ window.onload = function() {
 
     startCalibrationBtn.onclick = async () => {
         try {
-            // Initialize heatmap
             initHeatmap();
             
-            // Start webgazer
             await webgazer.begin();
             
-            // Configure display options after begin
             webgazer.showVideoPreview(true);
             webgazer.showPredictionPoints(false);
             
@@ -209,6 +258,6 @@ window.onload = function() {
         }
     };
     
-    // Initialize heatmap on page load (hidden state)
+    // Initialize
     initHeatmap();
 };

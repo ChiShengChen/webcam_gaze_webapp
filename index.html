@@ -5,43 +5,117 @@
     <link rel="icon" type="image/svg+xml" href="/vite.svg" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Webcam Gaze Tracker</title>
-
   </head>
   <body>
-    <div class="container">
-      <h1>Webcam Gaze Tracker</h1>
-      <p>This application uses your webcam to track your gaze. Please follow the steps below.</p>
-      
-      <div id="calibration-instructions">
-        <h2>Calibration</h2>
-        <p>Please click on each of the circles on the screen. Do this a few times until the red dot follows your gaze. You can click the button below to start over.</p>
-        <button id="start-calibration">Start Calibration</button>
-      </div>
+    <!-- Mode Toggle -->
+    <div id="mode-toggle">
+      <button id="tracker-mode-btn" class="mode-btn active">Gaze Tracker</button>
+      <button id="label-mode-btn" class="mode-btn">Label Mode</button>
+    </div>
 
-      <div id="gaze-dot"></div>
-      
-      <!-- Heatmap Container -->
-      <div id="heatmap-container">
-        <div id="heatmap-header">
-          <span>Gaze Heatmap</span>
-          <button id="toggle-heatmap">Hide</button>
-          <button id="clear-heatmap">Clear</button>
+    <!-- Gaze Tracker Mode -->
+    <div id="tracker-mode" class="mode-container">
+      <div class="container">
+        <h1>Webcam Gaze Tracker</h1>
+        <p>This application uses your webcam to track your gaze. Please follow the steps below.</p>
+        
+        <div id="calibration-instructions">
+          <h2>Calibration</h2>
+          <p>Please click on each of the circles on the screen. Do this a few times until the red dot follows your gaze. You can click the button below to start over.</p>
+          <button id="start-calibration">Start Calibration</button>
         </div>
-        <canvas id="heatmap-canvas"></canvas>
-      </div>
-      
-      <div id="calibration-dots">
-        <div class="calibration-dot" style="top: 5%; left: 5%;"></div>
-        <div class="calibration-dot" style="top: 5%; left: 50%;"></div>
-        <div class="calibration-dot" style="top: 5%; left: 95%;"></div>
-        <div class="calibration-dot" style="top: 50%; left: 5%;"></div>
-        <div class="calibration-dot" style="top: 50%; left: 50%;"></div>
-        <div class="calibration-dot" style="top: 50%; left: 95%;"></div>
-        <div class="calibration-dot" style="top: 95%; left: 5%;"></div>
-        <div class="calibration-dot" style="top: 95%; left: 50%;"></div>
-        <div class="calibration-dot" style="top: 95%; left: 95%;"></div>
+
+        <div id="gaze-dot"></div>
+        
+        <!-- Heatmap Container -->
+        <div id="heatmap-container">
+          <div id="heatmap-header">
+            <span>Gaze Heatmap</span>
+            <button id="toggle-heatmap">Hide</button>
+            <button id="clear-heatmap">Clear</button>
+          </div>
+          <canvas id="heatmap-canvas"></canvas>
+        </div>
+        
+        <div id="calibration-dots">
+          <div class="calibration-dot" style="top: 5%; left: 5%;"></div>
+          <div class="calibration-dot" style="top: 5%; left: 50%;"></div>
+          <div class="calibration-dot" style="top: 5%; left: 95%;"></div>
+          <div class="calibration-dot" style="top: 50%; left: 5%;"></div>
+          <div class="calibration-dot" style="top: 50%; left: 50%;"></div>
+          <div class="calibration-dot" style="top: 50%; left: 95%;"></div>
+          <div class="calibration-dot" style="top: 95%; left: 5%;"></div>
+          <div class="calibration-dot" style="top: 95%; left: 50%;"></div>
+          <div class="calibration-dot" style="top: 95%; left: 95%;"></div>
+        </div>
       </div>
     </div>
+
+    <!-- Label Mode -->
+    <div id="label-mode" class="mode-container" style="display: none;">
+      <div class="label-container">
+        <!-- Left Panel: Controls -->
+        <div id="label-controls">
+          <h2>Gaze Label Tool</h2>
+          
+          <div class="control-section">
+            <h3>1. Load Image</h3>
+            <input type="file" id="image-upload" accept="image/*" />
+            <div id="image-list"></div>
+          </div>
+          
+          <div class="control-section">
+            <h3>2. Labels</h3>
+            <div id="label-input-group">
+              <input type="text" id="label-name-input" placeholder="Enter label name" />
+              <input type="color" id="label-color-input" value="#FF6B6B" title="Choose label color" />
+              <button id="add-label-btn">Add</button>
+            </div>
+            <div id="current-label-display">
+              <span>Current: </span>
+              <span id="current-label-name">None</span>
+              <button id="deselect-label-btn" disabled>Deselect</button>
+            </div>
+            <div id="label-list"></div>
+          </div>
+          
+          <div class="control-section">
+            <h3>3. Gaze Control</h3>
+            <p class="hint">Look at an object and press <kbd>Space</kbd> to segment</p>
+            <div id="gaze-status">
+              <span id="gaze-coords">Gaze: (-, -)</span>
+            </div>
+            <button id="undo-segment-btn" disabled>Undo Last Segment</button>
+          </div>
+          
+          <div class="control-section">
+            <h3>4. Annotations</h3>
+            <div id="annotation-list"></div>
+          </div>
+          
+          <div class="control-section">
+            <h3>5. Export</h3>
+            <button id="export-coco-btn">Export COCO JSON</button>
+            <button id="export-yolo-btn">Export YOLO TXT</button>
+          </div>
+          
+          <div class="control-section">
+            <h3>Model Status</h3>
+            <div id="model-status">Loading SAM model...</div>
+          </div>
+        </div>
+        
+        <!-- Right Panel: Image Canvas -->
+        <div id="label-workspace">
+          <div id="canvas-container">
+            <canvas id="image-canvas"></canvas>
+            <canvas id="mask-canvas"></canvas>
+            <div id="gaze-cursor"></div>
+          </div>
+        </div>
+      </div>
+    </div>
+
     <script type="module" src="/src/main.ts"></script>
   </body>
 </html>
