@@ -2,11 +2,18 @@
 
 A web application that uses your webcam to track your eye gaze in real-time. Built with WebGazer.js and Vite.
 
+## Demo
+
+<video src="assets/demo.mp4" controls width="100%"></video>
+
+> *The red dot follows your gaze in real-time. The heatmap in the top-right corner shows gaze distribution.*
+
 ## Features
 
 - Real-time eye gaze tracking using webcam
 - 9-point calibration system for improved accuracy
 - Visual gaze indicator (red dot follows your gaze)
+- **Real-time gaze heatmap** - visualizes where you look most frequently
 - Video preview to ensure proper face positioning
 
 ## Prerequisites
@@ -41,6 +48,15 @@ npm install
 5. Click on each of the 9 yellow calibration dots. Each dot will turn green after clicking.
 
 6. Once all dots are clicked, calibration is complete. A red dot will appear and follow your gaze.
+
+7. The **Gaze Heatmap** will appear in the top-right corner, showing where you look most frequently.
+
+### Heatmap Controls
+
+| Button | Function |
+|--------|----------|
+| **Hide/Show** | Toggle heatmap visibility |
+| **Clear** | Reset heatmap data |
 
 ## Tips for Better Accuracy
 
@@ -194,6 +210,26 @@ w = (X^T X + λI)^(-1) X^T y
 ### Privacy
 
 All processing happens **locally in the browser**. No video or gaze data is sent to any server.
+
+### Gaze Heatmap
+
+The heatmap provides a real-time visualization of gaze distribution across the screen.
+
+**How it works:**
+1. **Grid Division**: The screen is divided into a 50x50 grid for high-resolution visualization
+2. **Intensity Accumulation**: Each gaze point increases the intensity of the corresponding grid cell
+3. **Spatial Smoothing**: Neighboring cells also receive a slight intensity boost for smoother visualization
+4. **Color Mapping**: Intensity values are mapped to a color gradient:
+
+```
+Low ──────────────────────────────────────────── High
+Blue → Cyan → Green → Yellow → Red
+```
+
+**Implementation:**
+- Uses HTML5 Canvas for rendering
+- Updates in real-time with each gaze prediction (~60fps)
+- Minimal performance impact due to efficient grid-based approach
 
 ## Project Structure
 

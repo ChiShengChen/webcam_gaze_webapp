@@ -88,3 +88,51 @@ button:focus-visible {
 #calibration-instructions {
   margin-bottom: 20px;
 }
+
+/* Heatmap Styles */
+#heatmap-container {
+  position: fixed;
+  top: 10px;
+  right: 10px;
+  width: 320px;
+  background-color: rgba(0, 0, 0, 0.85);
+  border-radius: 8px;
+  padding: 10px;
+  z-index: 10000;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+  display: none; /* Hidden by default, shown after calibration */
+}
+
+#heatmap-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 8px;
+  color: #fff;
+  font-size: 14px;
+}
+
+#heatmap-header span {
+  font-weight: bold;
+}
+
+#heatmap-header button {
+  padding: 4px 10px;
+  font-size: 12px;
+  margin-left: 5px;
+}
+
+#heatmap-canvas {
+  width: 100%;
+  height: 180px;
+  background-color: #1a1a1a;
+  border-radius: 4px;
+}
+
+#heatmap-container.hidden #heatmap-canvas {
+  display: none;
+}
+
+#heatmap-container.hidden {
+  width: auto;
+}
