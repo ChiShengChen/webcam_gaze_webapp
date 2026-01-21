@@ -5,7 +5,11 @@ A web application that uses your webcam to track your eye gaze in real-time, wit
 ## Demo
 
 ### Gaze Tracker
-https://github.com/user-attachments/assets/50487841-efd8-45c1-9f74-c380a07010ed
+
+
+https://github.com/user-attachments/assets/1917dd53-f225-4207-8f77-b37d2857f804
+
+
 
 > *The red dot follows your gaze in real-time. The heatmap in the top-right corner shows gaze distribution.*
 
