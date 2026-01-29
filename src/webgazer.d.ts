@@ -18,8 +18,9 @@ declare module 'webgazer' {
         showVideo(show: boolean): typeof webgazer;
         showFaceOverlay(show: boolean): typeof webgazer;
         showFaceFeedbackBox(show: boolean): typeof webgazer;
-        setRegression(type: string): typeof webgazer;
+        setRegression(type: 'ridge' | 'weightedRidge' | 'threadedRidge'): typeof webgazer;
         setTracker(type: string): typeof webgazer;
+        applyKalmanFilter(enabled: boolean): typeof webgazer;
         saveDataAcrossSessions(save: boolean): typeof webgazer;
         getCurrentPrediction(): Promise<GazeData | null>;
     };

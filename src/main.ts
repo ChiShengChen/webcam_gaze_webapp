@@ -3,11 +3,25 @@ import webgazer from 'webgazer';
 import { LabelMode } from './labelMode';
 import { VideoMode } from './videoMode';
 
-// Current mode
 let currentMode: 'tracker' | 'label' | 'video' = 'tracker';
 let labelMode: LabelMode | null = null;
 let videoMode: VideoMode | null = null;
 let webgazerStarted = false;
+
+const gazeHistory: { x: number; y: number }[] = [];
+const SMOOTHING_FRAMES = 5;
+
+function smoothGaze(rawX: number, rawY: number): { x: number; y: number } {
+    gazeHistory.push({ x: rawX, y: rawY });
+    if (gazeHistory.length > SMOOTHING_FRAMES) {
+        gazeHistory.shift();
+    }
+    
+    const avgX = gazeHistory.reduce((sum, p) => sum + p.x, 0) / gazeHistory.length;
+    const avgY = gazeHistory.reduce((sum, p) => sum + p.y, 0) / gazeHistory.length;
+    
+    return { x: avgX, y: avgY };
+}
 
 window.onload = function() {
     // Mode toggle elements
@@ -199,7 +213,6 @@ window.onload = function() {
         initHeatmap();
     };
 
-    // ==================== Gaze Tracking ====================
     function startGazeListener() {
         gazeDot.style.display = 'block';
         webgazerStarted = true;
@@ -209,22 +222,17 @@ window.onload = function() {
                 return;
             }
             
-            // Always track gaze position
-            const x = data.x;
-            const y = data.y;
+            const smoothed = smoothGaze(data.x, data.y);
+            const x = smoothed.x;
+            const y = smoothed.y;
             
             if (currentMode === 'tracker') {
-                // Update gaze dot position
                 gazeDot.style.left = `${x}px`;
                 gazeDot.style.top = `${y}px`;
-                
-                // Update heatmap
                 updateHeatmap(x, y);
             } else if (currentMode === 'label' && labelMode) {
-                // Update label mode gaze cursor
                 labelMode.updateGazePosition(x, y);
             } else if (currentMode === 'video' && videoMode) {
-                // Update video mode gaze cursor
                 videoMode.updateGazePosition(x, y);
             }
         });
@@ -277,6 +285,5 @@ window.onload = function() {
         }
     };
     
-    // Initialize
     initHeatmap();
 };

@@ -325,6 +325,25 @@ w = (X^T X + λI)^(-1) X^T y
 └─────────────┘     └──────────────┘     └─────────────────┘
 ```
 
+### Gaze Smoothing
+
+To reduce jitter in gaze predictions, a **moving average filter** is applied at the application level.
+
+**How it works:**
+1. The last N gaze positions are stored in a history buffer (default: 5 frames)
+2. Each new prediction is averaged with recent positions
+3. This smooths out high-frequency noise while preserving tracking accuracy
+
+```
+Raw Gaze Data → Moving Average (5 frames) → Smoothed Position → Display
+```
+
+**Configuration:**
+The smoothing can be adjusted by modifying `SMOOTHING_FRAMES` in `src/main.ts`:
+- **Higher value (8-10)**: Smoother but more latency
+- **Lower value (3)**: More responsive but more jitter
+- **Default (5)**: Balanced for most users
+
 ### Privacy
 
 All processing happens **locally in the browser**. No video or gaze data is sent to any server.
