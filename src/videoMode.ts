@@ -1,12 +1,5 @@
-// Types
-interface GazePoint {
-    timestamp: number;      // Video timestamp in seconds
-    frameNumber: number;    // Estimated frame number
-    x: number;              // Gaze x position (relative to video, 0-1)
-    y: number;              // Gaze y position (relative to video, 0-1)
-    screenX: number;        // Absolute screen position
-    screenY: number;        // Absolute screen position
-}
+import type { GazePoint, AOI, AnalysisResult } from './gazeAnalysis';
+import { analyzeGazeData, analysisToCSV, getScanpathDrawingData } from './gazeAnalysis';
 
 interface VideoAnnotation {
     videoName: string;
@@ -54,6 +47,17 @@ export class VideoMode {
     // Timer
     private timerInterval: number | null = null;
     private recordStartTimestamp = 0;
+    
+    // AOI state
+    private aois: AOI[] = [];
+    private nextAoiId = 1;
+    private isDrawingAOI = false;
+    private aoiDrawStart: { x: number; y: number } | null = null;
+    private aoiDrawingCanvas: HTMLCanvasElement | null = null;
+    
+    // Analysis state
+    private analysisResult: AnalysisResult | null = null;
+    private showScanpath = false;
     
     constructor() {
         // Get DOM elements
@@ -119,6 +123,39 @@ export class VideoMode {
         // Resize handler
         window.addEventListener('resize', () => {
             this.updateOverlaySize();
+            this.updateAOIOverlaySize();
+        });
+        
+        this.setupAOIListeners();
+        this.setupAnalysisListeners();
+    }
+    
+    private setupAOIListeners(): void {
+        const drawBtn = document.getElementById('draw-aoi-btn') as HTMLButtonElement;
+        const cancelBtn = document.getElementById('cancel-aoi-btn') as HTMLButtonElement;
+        
+        drawBtn.addEventListener('click', () => {
+            if (this.isDrawingAOI) {
+                this.cancelAOIDrawing();
+            } else {
+                this.startAOIDrawing();
+            }
+        });
+        
+        cancelBtn.addEventListener('click', () => this.cancelAOIDrawing());
+    }
+    
+    private setupAnalysisListeners(): void {
+        document.getElementById('run-analysis-btn')!.addEventListener('click', () => {
+            this.runAnalysis();
+        });
+        
+        document.getElementById('toggle-scanpath-btn')!.addEventListener('click', () => {
+            this.toggleScanpath();
+        });
+        
+        document.getElementById('export-analysis-btn')!.addEventListener('click', () => {
+            this.exportAnalysis();
         });
     }
     
@@ -140,10 +177,9 @@ export class VideoMode {
             <div>Size: ${(file.size / 1024 / 1024).toFixed(2)} MB</div>
         `;
         
-        // Enable play button
         (document.getElementById('video-play-btn') as HTMLButtonElement).disabled = false;
+        (document.getElementById('draw-aoi-btn') as HTMLButtonElement).disabled = false;
         
-        // Reset state
         this.resetRecording();
     }
     
@@ -339,8 +375,8 @@ export class VideoMode {
         }
         (document.getElementById('export-video-all-btn') as HTMLButtonElement).disabled = false;
         
-        // Draw final timeline with gaze data
         this.drawTimeline();
+        this.updateAnalysisButtons();
     }
     
     private resetRecording(): void {
@@ -570,9 +606,373 @@ export class VideoMode {
         URL.revokeObjectURL(url);
     }
     
-    // Check if video mode is active
     isVideoModeActive(): boolean {
         const videoMode = document.getElementById('video-mode');
         return videoMode?.style.display !== 'none';
+    }
+    
+    private createAOIOverlay(): void {
+        if (this.aoiDrawingCanvas) return;
+        
+        this.aoiDrawingCanvas = document.createElement('canvas');
+        this.aoiDrawingCanvas.id = 'aoi-drawing-overlay';
+        this.videoContainer.appendChild(this.aoiDrawingCanvas);
+        this.updateAOIOverlaySize();
+        
+        this.aoiDrawingCanvas.addEventListener('mousedown', (e) => this.onAOIMouseDown(e));
+        this.aoiDrawingCanvas.addEventListener('mousemove', (e) => this.onAOIMouseMove(e));
+        this.aoiDrawingCanvas.addEventListener('mouseup', (e) => this.onAOIMouseUp(e));
+    }
+    
+    private updateAOIOverlaySize(): void {
+        if (!this.aoiDrawingCanvas) return;
+        
+        const rect = this.video.getBoundingClientRect();
+        this.aoiDrawingCanvas.width = rect.width;
+        this.aoiDrawingCanvas.height = rect.height;
+        this.aoiDrawingCanvas.style.width = `${rect.width}px`;
+        this.aoiDrawingCanvas.style.height = `${rect.height}px`;
+        this.aoiDrawingCanvas.style.position = 'absolute';
+        this.aoiDrawingCanvas.style.left = `${this.video.offsetLeft}px`;
+        this.aoiDrawingCanvas.style.top = `${this.video.offsetTop}px`;
+        
+        this.drawAOIs();
+    }
+    
+    private startAOIDrawing(): void {
+        const nameInput = document.getElementById('aoi-name-input') as HTMLInputElement;
+        if (!nameInput.value.trim()) {
+            alert('Please enter an AOI name first');
+            return;
+        }
+        
+        this.createAOIOverlay();
+        this.isDrawingAOI = true;
+        this.aoiDrawingCanvas!.classList.add('drawing');
+        
+        const drawBtn = document.getElementById('draw-aoi-btn') as HTMLButtonElement;
+        const cancelBtn = document.getElementById('cancel-aoi-btn') as HTMLButtonElement;
+        drawBtn.textContent = 'Drawing...';
+        drawBtn.classList.add('drawing');
+        cancelBtn.style.display = 'block';
+    }
+    
+    private cancelAOIDrawing(): void {
+        this.isDrawingAOI = false;
+        this.aoiDrawStart = null;
+        
+        if (this.aoiDrawingCanvas) {
+            this.aoiDrawingCanvas.classList.remove('drawing');
+        }
+        
+        const drawBtn = document.getElementById('draw-aoi-btn') as HTMLButtonElement;
+        const cancelBtn = document.getElementById('cancel-aoi-btn') as HTMLButtonElement;
+        drawBtn.textContent = 'Draw Rectangle';
+        drawBtn.classList.remove('drawing');
+        cancelBtn.style.display = 'none';
+        
+        this.drawAOIs();
+    }
+    
+    private onAOIMouseDown(e: MouseEvent): void {
+        if (!this.isDrawingAOI) return;
+        
+        const rect = this.aoiDrawingCanvas!.getBoundingClientRect();
+        this.aoiDrawStart = {
+            x: (e.clientX - rect.left) / rect.width,
+            y: (e.clientY - rect.top) / rect.height
+        };
+    }
+    
+    private onAOIMouseMove(e: MouseEvent): void {
+        if (!this.isDrawingAOI || !this.aoiDrawStart) return;
+        
+        const rect = this.aoiDrawingCanvas!.getBoundingClientRect();
+        const currentX = (e.clientX - rect.left) / rect.width;
+        const currentY = (e.clientY - rect.top) / rect.height;
+        
+        this.drawAOIs();
+        this.drawTempAOI(this.aoiDrawStart.x, this.aoiDrawStart.y, currentX, currentY);
+    }
+    
+    private onAOIMouseUp(e: MouseEvent): void {
+        if (!this.isDrawingAOI || !this.aoiDrawStart) return;
+        
+        const rect = this.aoiDrawingCanvas!.getBoundingClientRect();
+        const endX = (e.clientX - rect.left) / rect.width;
+        const endY = (e.clientY - rect.top) / rect.height;
+        
+        const minX = Math.min(this.aoiDrawStart.x, endX);
+        const minY = Math.min(this.aoiDrawStart.y, endY);
+        const width = Math.abs(endX - this.aoiDrawStart.x);
+        const height = Math.abs(endY - this.aoiDrawStart.y);
+        
+        if (width > 0.01 && height > 0.01) {
+            const nameInput = document.getElementById('aoi-name-input') as HTMLInputElement;
+            const colorInput = document.getElementById('aoi-color-input') as HTMLInputElement;
+            
+            const aoi: AOI = {
+                id: `aoi-${this.nextAoiId++}`,
+                name: nameInput.value.trim(),
+                color: colorInput.value,
+                bounds: { x: minX, y: minY, width, height }
+            };
+            
+            this.aois.push(aoi);
+            nameInput.value = '';
+            this.updateAOIList();
+            this.updateAnalysisButtons();
+        }
+        
+        this.cancelAOIDrawing();
+    }
+    
+    private drawTempAOI(x1: number, y1: number, x2: number, y2: number): void {
+        if (!this.aoiDrawingCanvas) return;
+        
+        const ctx = this.aoiDrawingCanvas.getContext('2d')!;
+        const w = this.aoiDrawingCanvas.width;
+        const h = this.aoiDrawingCanvas.height;
+        
+        const colorInput = document.getElementById('aoi-color-input') as HTMLInputElement;
+        
+        ctx.strokeStyle = colorInput.value;
+        ctx.lineWidth = 2;
+        ctx.setLineDash([5, 5]);
+        ctx.strokeRect(
+            Math.min(x1, x2) * w,
+            Math.min(y1, y2) * h,
+            Math.abs(x2 - x1) * w,
+            Math.abs(y2 - y1) * h
+        );
+        ctx.setLineDash([]);
+    }
+    
+    private drawAOIs(): void {
+        if (!this.aoiDrawingCanvas) return;
+        
+        const ctx = this.aoiDrawingCanvas.getContext('2d')!;
+        const w = this.aoiDrawingCanvas.width;
+        const h = this.aoiDrawingCanvas.height;
+        
+        ctx.clearRect(0, 0, w, h);
+        
+        for (const aoi of this.aois) {
+            const x = aoi.bounds.x * w;
+            const y = aoi.bounds.y * h;
+            const width = aoi.bounds.width * w;
+            const height = aoi.bounds.height * h;
+            
+            ctx.fillStyle = aoi.color + '20';
+            ctx.fillRect(x, y, width, height);
+            
+            ctx.strokeStyle = aoi.color;
+            ctx.lineWidth = 2;
+            ctx.strokeRect(x, y, width, height);
+            
+            ctx.fillStyle = aoi.color;
+            ctx.font = '12px sans-serif';
+            ctx.fillText(aoi.name, x + 4, y + 14);
+        }
+        
+        if (this.showScanpath && this.analysisResult) {
+            this.drawScanpathVisualization();
+        }
+    }
+    
+    private updateAOIList(): void {
+        const listEl = document.getElementById('aoi-list')!;
+        listEl.innerHTML = this.aois.map(aoi => `
+            <div class="aoi-item" data-id="${aoi.id}">
+                <div class="aoi-color" style="background-color: ${aoi.color}"></div>
+                <span class="aoi-name">${aoi.name}</span>
+                <button class="aoi-delete" data-id="${aoi.id}">X</button>
+            </div>
+        `).join('');
+        
+        listEl.querySelectorAll('.aoi-delete').forEach(btn => {
+            btn.addEventListener('click', (e) => {
+                e.stopPropagation();
+                const id = btn.getAttribute('data-id')!;
+                this.deleteAOI(id);
+            });
+        });
+    }
+    
+    private deleteAOI(id: string): void {
+        this.aois = this.aois.filter(a => a.id !== id);
+        this.updateAOIList();
+        this.updateAnalysisButtons();
+        this.drawAOIs();
+    }
+    
+    private updateAnalysisButtons(): void {
+        const hasData = this.gazePoints.length > 0;
+        const drawBtn = document.getElementById('draw-aoi-btn') as HTMLButtonElement;
+        const runBtn = document.getElementById('run-analysis-btn') as HTMLButtonElement;
+        const exportBtn = document.getElementById('export-analysis-btn') as HTMLButtonElement;
+        
+        drawBtn.disabled = !this.video.src;
+        runBtn.disabled = !hasData;
+        exportBtn.disabled = !this.analysisResult;
+    }
+    
+    private runAnalysis(): void {
+        if (this.gazePoints.length === 0) {
+            alert('No gaze data recorded. Please record a session first.');
+            return;
+        }
+        
+        const dispersionInput = document.getElementById('dispersion-threshold') as HTMLInputElement;
+        const minDurationInput = document.getElementById('min-fixation-duration') as HTMLInputElement;
+        
+        this.analysisResult = analyzeGazeData(this.gazePoints, this.aois, {
+            dispersionThreshold: parseFloat(dispersionInput.value),
+            minFixationDuration: parseInt(minDurationInput.value),
+            videoStartTime: 0
+        });
+        
+        this.displayAnalysisResults();
+        this.updateAnalysisButtons();
+        
+        const toggleBtn = document.getElementById('toggle-scanpath-btn') as HTMLButtonElement;
+        toggleBtn.disabled = false;
+    }
+    
+    private displayAnalysisResults(): void {
+        if (!this.analysisResult) return;
+        
+        const resultsDiv = document.getElementById('analysis-results')!;
+        resultsDiv.style.display = 'block';
+        
+        const { fixations, dwellTimeStats, scanpathMetrics, firstFixationMetrics } = this.analysisResult;
+        
+        document.getElementById('fixation-summary')!.innerHTML = `
+            <div class="stat-row">
+                <span>Total Fixations:</span>
+                <span class="stat-value">${fixations.length}</span>
+            </div>
+            <div class="stat-row">
+                <span>Total Duration:</span>
+                <span class="stat-value">${(scanpathMetrics.totalDuration / 1000).toFixed(2)}s</span>
+            </div>
+            <div class="stat-row">
+                <span>Mean Fixation:</span>
+                <span class="stat-value">${scanpathMetrics.meanFixationDuration.toFixed(0)}ms</span>
+            </div>
+        `;
+        
+        document.getElementById('dwell-time-table')!.innerHTML = `
+            <table class="analysis-table">
+                <thead>
+                    <tr><th>AOI</th><th>Dwell (ms)</th><th>Count</th><th>%</th></tr>
+                </thead>
+                <tbody>
+                    ${dwellTimeStats.map(d => `
+                        <tr>
+                            <td>${d.aoiName}</td>
+                            <td>${d.totalDwellTime.toFixed(0)}</td>
+                            <td>${d.fixationCount}</td>
+                            <td>${d.percentOfTotal.toFixed(1)}%</td>
+                        </tr>
+                    `).join('')}
+                </tbody>
+            </table>
+        `;
+        
+        document.getElementById('first-fixation-table')!.innerHTML = `
+            <table class="analysis-table">
+                <thead>
+                    <tr><th>AOI</th><th>TTFF (ms)</th><th>Duration</th><th>Entries</th></tr>
+                </thead>
+                <tbody>
+                    ${firstFixationMetrics.map(f => `
+                        <tr>
+                            <td>${f.aoiName}</td>
+                            <td>${f.timeToFirstFixation !== null ? f.timeToFirstFixation.toFixed(0) : 'N/A'}</td>
+                            <td>${f.firstFixationDuration !== null ? f.firstFixationDuration.toFixed(0) : 'N/A'}</td>
+                            <td>${f.entryCount}</td>
+                        </tr>
+                    `).join('')}
+                </tbody>
+            </table>
+        `;
+        
+        document.getElementById('scanpath-metrics')!.innerHTML = `
+            <div class="metric-row">
+                <span class="metric-label">Path Length:</span>
+                <span class="metric-value">${scanpathMetrics.totalLength.toFixed(3)}</span>
+            </div>
+            <div class="metric-row">
+                <span class="metric-label">Mean Saccade:</span>
+                <span class="metric-value">${scanpathMetrics.meanSaccadeAmplitude.toFixed(4)}</span>
+            </div>
+            <div class="aoi-sequence">
+                <strong>AOI Sequence:</strong><br>
+                ${scanpathMetrics.aoiSequence.join(' → ') || 'No AOI visits'}
+            </div>
+        `;
+    }
+    
+    private toggleScanpath(): void {
+        this.showScanpath = !this.showScanpath;
+        
+        const btn = document.getElementById('toggle-scanpath-btn') as HTMLButtonElement;
+        btn.textContent = this.showScanpath ? 'Hide Scanpath' : 'Show Scanpath';
+        btn.classList.toggle('active', this.showScanpath);
+        
+        this.createAOIOverlay();
+        this.drawAOIs();
+    }
+    
+    private drawScanpathVisualization(): void {
+        if (!this.analysisResult || !this.aoiDrawingCanvas) return;
+        
+        const ctx = this.aoiDrawingCanvas.getContext('2d')!;
+        const w = this.aoiDrawingCanvas.width;
+        const h = this.aoiDrawingCanvas.height;
+        
+        const { circles, lines } = getScanpathDrawingData(this.analysisResult.fixations);
+        
+        ctx.strokeStyle = 'rgba(255, 152, 0, 0.6)';
+        ctx.lineWidth = 2;
+        for (const line of lines) {
+            ctx.beginPath();
+            ctx.moveTo(line.x1 * w, line.y1 * h);
+            ctx.lineTo(line.x2 * w, line.y2 * h);
+            ctx.stroke();
+        }
+        
+        for (const circle of circles) {
+            ctx.beginPath();
+            ctx.arc(circle.x * w, circle.y * h, circle.radius, 0, Math.PI * 2);
+            ctx.fillStyle = 'rgba(255, 152, 0, 0.4)';
+            ctx.fill();
+            ctx.strokeStyle = '#ff9800';
+            ctx.lineWidth = 2;
+            ctx.stroke();
+            
+            ctx.fillStyle = '#fff';
+            ctx.font = '10px sans-serif';
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'middle';
+            ctx.fillText(circle.id.toString(), circle.x * w, circle.y * h);
+        }
+    }
+    
+    private exportAnalysis(): void {
+        if (!this.analysisResult) return;
+        
+        const csvData = analysisToCSV(this.analysisResult, this.aois);
+        
+        this.downloadText(csvData.fixationsCSV, `${this.videoName}_fixations.csv`);
+        setTimeout(() => this.downloadText(csvData.dwellTimeCSV, `${this.videoName}_dwell_time.csv`), 200);
+        setTimeout(() => this.downloadText(csvData.firstFixationCSV, `${this.videoName}_first_fixation.csv`), 400);
+        setTimeout(() => this.downloadText(csvData.scanpathCSV, `${this.videoName}_scanpath.csv`), 600);
+    }
+    
+    private downloadText(content: string, filename: string): void {
+        const blob = new Blob([content], { type: 'text/csv' });
+        this.downloadBlob(blob, filename);
     }
 }

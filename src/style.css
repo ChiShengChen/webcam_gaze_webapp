@@ -827,3 +827,274 @@ kbd {
 #video-player-container.has-video::before {
   display: none;
 }
+
+/* ==================== AOI Styles ==================== */
+#aoi-input-group {
+  display: flex;
+  gap: 5px;
+  margin-bottom: 10px;
+}
+
+#aoi-name-input {
+  flex: 1;
+  padding: 8px;
+  border-radius: 4px;
+  border: 1px solid #444;
+  background: #2a2a2a;
+  color: #fff;
+}
+
+#aoi-color-input {
+  width: 40px;
+  height: 36px;
+  padding: 2px;
+  border: 1px solid #444;
+  border-radius: 4px;
+  background: #2a2a2a;
+  cursor: pointer;
+}
+
+#aoi-draw-controls {
+  display: flex;
+  gap: 5px;
+  margin-bottom: 10px;
+}
+
+#aoi-draw-controls button {
+  flex: 1;
+}
+
+#draw-aoi-btn {
+  background: #9C27B0;
+}
+
+#draw-aoi-btn.drawing {
+  background: #E91E63;
+}
+
+#cancel-aoi-btn {
+  background: #666;
+}
+
+#aoi-list {
+  max-height: 120px;
+  overflow-y: auto;
+}
+
+.aoi-item {
+  display: flex;
+  align-items: center;
+  padding: 8px;
+  background: #2a2a2a;
+  margin: 5px 0;
+  border-radius: 4px;
+  font-size: 12px;
+}
+
+.aoi-item .aoi-color {
+  width: 16px;
+  height: 16px;
+  border-radius: 3px;
+  margin-right: 8px;
+  border: 1px solid #444;
+}
+
+.aoi-item .aoi-name {
+  flex: 1;
+}
+
+.aoi-item .aoi-delete {
+  background: #ff4444;
+  padding: 2px 8px;
+  font-size: 10px;
+}
+
+/* AOI Drawing Overlay */
+#aoi-drawing-overlay {
+  position: absolute;
+  top: 0;
+  left: 0;
+  pointer-events: none;
+  z-index: 10;
+}
+
+#aoi-drawing-overlay.drawing {
+  pointer-events: auto;
+  cursor: crosshair;
+}
+
+.aoi-rect {
+  position: absolute;
+  border: 2px solid;
+  background: rgba(255, 255, 255, 0.1);
+  pointer-events: none;
+}
+
+.aoi-rect .aoi-label {
+  position: absolute;
+  top: -20px;
+  left: 0;
+  font-size: 11px;
+  padding: 2px 6px;
+  border-radius: 3px;
+  white-space: nowrap;
+}
+
+/* ==================== Analysis Styles ==================== */
+#analysis-params {
+  margin-bottom: 10px;
+}
+
+#analysis-params label {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 5px;
+  font-size: 12px;
+}
+
+#analysis-params input[type="number"] {
+  width: 70px;
+  padding: 4px 6px;
+  border-radius: 4px;
+  border: 1px solid #444;
+  background: #2a2a2a;
+  color: #fff;
+  text-align: right;
+}
+
+#run-analysis-btn {
+  width: 100%;
+  background: #4CAF50;
+  margin-bottom: 8px;
+}
+
+#toggle-scanpath-btn {
+  width: 100%;
+  background: #2196F3;
+  margin-bottom: 10px;
+}
+
+#toggle-scanpath-btn.active {
+  background: #1565C0;
+}
+
+#analysis-results {
+  background: #2a2a2a;
+  border-radius: 4px;
+  padding: 10px;
+  margin-bottom: 10px;
+}
+
+#fixation-summary {
+  font-size: 13px;
+  padding-bottom: 10px;
+  border-bottom: 1px solid #444;
+  margin-bottom: 10px;
+}
+
+#fixation-summary .stat-row {
+  display: flex;
+  justify-content: space-between;
+  margin-bottom: 4px;
+}
+
+#fixation-summary .stat-value {
+  font-weight: bold;
+  color: #ff9800;
+}
+
+#analysis-results details {
+  margin-bottom: 8px;
+}
+
+#analysis-results summary {
+  cursor: pointer;
+  font-size: 12px;
+  color: #888;
+  padding: 5px 0;
+}
+
+#analysis-results summary:hover {
+  color: #fff;
+}
+
+.analysis-table {
+  width: 100%;
+  font-size: 11px;
+  border-collapse: collapse;
+  margin-top: 8px;
+}
+
+.analysis-table th,
+.analysis-table td {
+  padding: 4px 6px;
+  text-align: left;
+  border-bottom: 1px solid #333;
+}
+
+.analysis-table th {
+  color: #888;
+  font-weight: normal;
+}
+
+.analysis-table td {
+  color: #ddd;
+}
+
+.analysis-table tr:hover td {
+  background: #333;
+}
+
+#scanpath-metrics {
+  font-size: 12px;
+}
+
+#scanpath-metrics .metric-row {
+  display: flex;
+  justify-content: space-between;
+  padding: 4px 0;
+  border-bottom: 1px solid #333;
+}
+
+#scanpath-metrics .metric-label {
+  color: #888;
+}
+
+#scanpath-metrics .metric-value {
+  color: #4CAF50;
+  font-family: monospace;
+}
+
+#scanpath-metrics .aoi-sequence {
+  margin-top: 8px;
+  padding: 8px;
+  background: #1a1a1a;
+  border-radius: 4px;
+  font-size: 11px;
+  word-break: break-all;
+}
+
+#export-analysis-btn {
+  width: 100%;
+  background: #795548;
+}
+
+/* Scanpath Visualization */
+.scanpath-line {
+  stroke: rgba(255, 152, 0, 0.6);
+  stroke-width: 2;
+}
+
+.scanpath-fixation {
+  fill: rgba(255, 152, 0, 0.4);
+  stroke: #ff9800;
+  stroke-width: 2;
+}
+
+.scanpath-fixation-label {
+  fill: #fff;
+  font-size: 10px;
+  text-anchor: middle;
+  dominant-baseline: middle;
+}

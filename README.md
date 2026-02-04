@@ -37,7 +37,7 @@ https://github.com/user-attachments/assets/1917dd53-f225-4207-8f77-b37d2857f804
   - COCO JSON (standard format for instance segmentation)
   - YOLO TXT (bounding box format for object detection)
 
-### Video Mode (NEW)
+### Video Mode
 - **Video annotation with gaze tracking** - watch videos while your gaze is recorded
 - **Audio commentary recording** - record verbal descriptions via microphone
 - **Real-time gaze visualization** - cyan dot shows where you're looking on the video
@@ -46,6 +46,19 @@ https://github.com/user-attachments/assets/1917dd53-f225-4207-8f77-b37d2857f804
 - **Export formats**:
   - JSON (gaze annotations with timestamps, coordinates, and metadata)
   - WebM (audio recording)
+
+### Gaze Analysis (Research Tools)
+- **Fixation Detection** - I-DT (Dispersion-Threshold) algorithm for identifying fixations
+- **Area of Interest (AOI)** - define rectangular AOIs on the video by drawing
+- **Dwell Time Statistics** - total dwell time, fixation count, and percentage per AOI
+- **First Fixation Metrics** - Time to First Fixation (TTFF), entry count per AOI
+- **Scanpath Analysis** - path length, mean saccade amplitude, AOI visit sequence
+- **Scanpath Visualization** - overlay showing fixation circles (size = duration) and saccade lines
+- **Configurable Parameters**:
+  - Dispersion threshold (default: 0.03, ~1-2° visual angle)
+  - Minimum fixation duration (default: 100ms)
+- **Export formats**:
+  - CSV files (fixations, dwell time, first fixation, scanpath metrics)
 
 ## Prerequisites
 
@@ -173,6 +186,74 @@ npm install
 | `frameNumber` | Estimated frame number |
 | `x`, `y` | Normalized coordinates (0-1) relative to video |
 | `screenX`, `screenY` | Absolute screen coordinates |
+
+### Gaze Analysis Usage
+
+1. After recording gaze data in Video Mode, define **Areas of Interest (AOI)**:
+   - Enter an AOI name in the input field
+   - Choose a color
+   - Click **"Draw Rectangle"**
+   - Click and drag on the video to draw the AOI boundary
+2. Repeat for all AOIs you want to analyze
+3. Adjust analysis parameters if needed:
+   - **Dispersion threshold**: Maximum spread for fixation detection (default: 0.03)
+   - **Min fixation duration**: Minimum time to count as fixation (default: 100ms)
+4. Click **"Run Analysis"** to process the gaze data
+5. View results in expandable sections:
+   - **Fixation Summary**: Total count, duration, mean fixation time
+   - **Dwell Time Statistics**: Time spent in each AOI
+   - **First Fixation Metrics**: TTFF and entry count per AOI
+   - **Scanpath Metrics**: Path analysis and AOI visit sequence
+6. Click **"Show Scanpath"** to visualize fixations and saccades on the video
+7. Click **"Export Analysis (CSV)"** to download analysis results
+
+### Analysis Controls
+
+| Control | Function |
+|---------|----------|
+| **Draw Rectangle** | Start AOI drawing mode |
+| **Run Analysis** | Execute fixation detection and compute metrics |
+| **Show Scanpath** | Toggle scanpath visualization overlay |
+| **Export Analysis** | Download 4 CSV files with analysis results |
+
+### Analysis Export Formats (CSV)
+
+The analysis export generates 4 CSV files:
+
+**1. Fixations CSV** (`_fixations.csv`)
+| Column | Description |
+|--------|-------------|
+| `id` | Fixation ID |
+| `start_time_s` | Start time in seconds |
+| `end_time_s` | End time in seconds |
+| `duration_ms` | Duration in milliseconds |
+| `x`, `y` | Normalized coordinates (0-1) |
+| `aoi` | AOI name (or "outside") |
+
+**2. Dwell Time CSV** (`_dwell_time.csv`)
+| Column | Description |
+|--------|-------------|
+| `aoi_name` | Area of Interest name |
+| `total_dwell_ms` | Total dwell time in milliseconds |
+| `fixation_count` | Number of fixations in AOI |
+| `mean_duration_ms` | Mean fixation duration |
+| `percent_total` | Percentage of total viewing time |
+
+**3. First Fixation CSV** (`_first_fixation.csv`)
+| Column | Description |
+|--------|-------------|
+| `aoi_name` | Area of Interest name |
+| `ttff_ms` | Time to First Fixation in milliseconds |
+| `first_duration_ms` | Duration of first fixation |
+| `entry_count` | Number of times gaze entered AOI |
+
+**4. Scanpath CSV** (`_scanpath.csv`)
+| Metric | Description |
+|--------|-------------|
+| `total_length` | Total scanpath length (normalized units) |
+| `fixation_count` | Number of fixations |
+| `mean_saccade_amplitude` | Average saccade distance |
+| `aoi_sequence` | Sequence of AOI visits (e.g., "A → B → A → C") |
 
 ## Tips for Better Accuracy
 
@@ -420,6 +501,36 @@ Gaze screen coordinates are transformed to normalized video coordinates (0-1) ac
 
 **Use Case**: Designed for expert annotation tasks such as surgical video review, where professionals can watch procedures while their gaze patterns and verbal commentary are recorded for analysis.
 
+### Gaze Analysis
+
+The analysis module implements standard eye tracking metrics for research applications.
+
+**Fixation Detection (I-DT Algorithm):**
+```
+Raw Gaze Points → Sliding Window → Dispersion Check → Fixation Classification
+                                        ↓
+                           dispersion < threshold? → Expand window
+                           dispersion ≥ threshold? → Record fixation, reset
+```
+
+The I-DT (Dispersion-Threshold Identification) algorithm:
+1. Collects gaze points in a temporal window
+2. Calculates dispersion (maximum distance between any two points)
+3. If dispersion < threshold and duration ≥ minimum, classifies as fixation
+4. Computes fixation centroid and duration
+
+**Analysis Metrics:**
+- **Dwell Time**: Sum of fixation durations within each AOI
+- **Time to First Fixation (TTFF)**: Time from video start to first fixation in AOI
+- **Scanpath Length**: Total distance traveled between consecutive fixations
+- **AOI Transition Matrix**: Counts of gaze transitions between AOIs
+
+**Default Parameters:**
+| Parameter | Value | Description |
+|-----------|-------|-------------|
+| Dispersion Threshold | 0.03 | 3% of screen (~1-2° visual angle) |
+| Min Fixation Duration | 100ms | Minimum time to qualify as fixation |
+
 ## Project Structure
 
 ```
@@ -429,6 +540,7 @@ webcam_gaze_webapp/
 │   ├── main.ts         # Application entry & mode switching
 │   ├── labelMode.ts    # Label mode logic & UI
 │   ├── videoMode.ts    # Video annotation mode logic & UI
+│   ├── gazeAnalysis.ts # Fixation detection & analysis metrics
 │   ├── sam.ts          # SAM model integration
 │   ├── style.css       # Styles
 │   └── webgazer.d.ts   # TypeScript declarations
