@@ -20,7 +20,11 @@ https://github.com/user-attachments/assets/1917dd53-f225-4207-8f77-b37d2857f804
 ### Video Mode
 
 
-https://github.com/user-attachments/assets/demo_2026-02-04_compressed.mp4
+
+
+https://github.com/user-attachments/assets/f2640ecf-6b47-4f8c-9892-7400ec1e0405
+
+
 
 
 > *Gaze tracking on video playback with real-time visualization, AOI definition, and analysis tools.*
