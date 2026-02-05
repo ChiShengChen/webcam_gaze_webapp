@@ -72,9 +72,12 @@ export class VideoMode {
     }
     
     private setupEventListeners(): void {
-        // Video upload
         const videoUpload = document.getElementById('video-upload') as HTMLInputElement;
-        videoUpload.addEventListener('change', (e) => this.handleVideoUpload(e));
+        videoUpload.addEventListener('change', (e) => {
+            this.handleVideoUpload(e);
+            const fileName = videoUpload.files?.[0]?.name || 'No file chosen';
+            document.getElementById('video-upload-name')!.textContent = fileName;
+        });
         
         // Microphone connection
         document.getElementById('connect-mic-btn')!.addEventListener('click', () => {

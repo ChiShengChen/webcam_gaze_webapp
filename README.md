@@ -17,6 +17,14 @@ https://github.com/user-attachments/assets/1917dd53-f225-4207-8f77-b37d2857f804
 
 > *The red dot follows your gaze in real-time. The heatmap in the top-right corner shows gaze distribution.*
 
+### Video Mode
+
+
+https://github.com/user-attachments/assets/demo_2026-02-04_compressed.mp4
+
+
+> *Gaze tracking on video playback with real-time visualization, AOI definition, and analysis tools.*
+
 ## Features
 
 ### Gaze Tracker Mode

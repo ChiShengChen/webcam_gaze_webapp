@@ -89,9 +89,12 @@ export class LabelMode {
     }
     
     private setupEventListeners(): void {
-        // Image upload
         const imageUpload = document.getElementById('image-upload') as HTMLInputElement;
-        imageUpload.addEventListener('change', (e) => this.handleImageUpload(e));
+        imageUpload.addEventListener('change', (e) => {
+            this.handleImageUpload(e);
+            const fileName = imageUpload.files?.[0]?.name || 'No file chosen';
+            document.getElementById('image-upload-name')!.textContent = fileName;
+        });
         
         // Label management
         const addLabelBtn = document.getElementById('add-label-btn')!;

@@ -61,7 +61,11 @@
           
           <div class="control-section">
             <h3>1. Load Image</h3>
-            <input type="file" id="image-upload" accept="image/*" />
+            <div class="file-upload-wrapper">
+              <button type="button" class="file-upload-btn" onclick="document.getElementById('image-upload').click()">Choose File</button>
+              <span class="file-upload-name" id="image-upload-name">No file chosen</span>
+              <input type="file" id="image-upload" accept="image/*" hidden />
+            </div>
             <div id="image-list"></div>
           </div>
           
@@ -126,7 +130,11 @@
           
           <div class="control-section">
             <h3>1. Load Video</h3>
-            <input type="file" id="video-upload" accept="video/*" />
+            <div class="file-upload-wrapper">
+              <button type="button" class="file-upload-btn" onclick="document.getElementById('video-upload').click()">Choose File</button>
+              <span class="file-upload-name" id="video-upload-name">No file chosen</span>
+              <input type="file" id="video-upload" accept="video/*" hidden />
+            </div>
             <div id="video-info"></div>
           </div>
           
