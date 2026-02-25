@@ -23,6 +23,7 @@ declare module 'webgazer' {
         applyKalmanFilter(enabled: boolean): typeof webgazer;
         saveDataAcrossSessions(save: boolean): typeof webgazer;
         getCurrentPrediction(): Promise<GazeData | null>;
+        clearData(): Promise<void>;
     };
 
     export default webgazer;

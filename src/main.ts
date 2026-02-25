@@ -10,6 +10,7 @@ let webgazerStarted = false;
 
 const gazeHistory: { x: number; y: number }[] = [];
 const SMOOTHING_FRAMES = 5;
+const CLICKS_PER_DOT = 5;
 
 function smoothGaze(rawX: number, rawY: number): { x: number; y: number } {
     gazeHistory.push({ x: rawX, y: rawY });
@@ -245,18 +246,48 @@ window.onload = function() {
         // Hide mode toggle during calibration
         modeToggle.style.display = 'none';
         
+        // Track click count per dot
+        const dotClicks = new Map<HTMLDivElement, number>();
+        let dotsCompleted = 0;
+        
         calibrationDots.forEach(dot => {
+            dotClicks.set(dot, 0);
             dot.style.backgroundColor = 'yellow';
+            dot.textContent = '';
+            dot.style.color = '#000';
+            dot.style.fontSize = '12px';
+            dot.style.display = 'flex';
+            dot.style.justifyContent = 'center';
+            dot.style.alignItems = 'center';
+            dot.style.fontWeight = 'bold';
+            
             dot.onclick = () => {
+                const count = (dotClicks.get(dot) || 0) + 1;
+                dotClicks.set(dot, count);
                 calibrationClicks++;
-                dot.style.backgroundColor = 'green';
-                if (calibrationClicks >= calibrationDots.length) {
-                    calibrationDotsContainer.style.display = 'none';
-                    heatmapContainer.style.display = 'block';
-                    // Show mode toggle after calibration
-                    modeToggle.style.display = 'flex';
-                    alert("Calibration complete! The red dot will now follow your gaze.\n\nYou can now switch to Label Mode or Video Mode.");
-                    startGazeListener();
+                
+                // Visual progress: interpolate yellow → green
+                const progress = count / CLICKS_PER_DOT;
+                const r = Math.round(255 * (1 - progress));
+                const g = Math.round(128 + 127 * progress);
+                const b = 0;
+                dot.style.backgroundColor = `rgb(${r}, ${g}, ${b})`;
+                dot.textContent = `${count}/${CLICKS_PER_DOT}`;
+                
+                if (count >= CLICKS_PER_DOT) {
+                    dot.style.backgroundColor = 'green';
+                    dot.textContent = '✓';
+                    dot.style.pointerEvents = 'none';
+                    dotsCompleted++;
+                    
+                    if (dotsCompleted >= calibrationDots.length) {
+                        calibrationDotsContainer.style.display = 'none';
+                        heatmapContainer.style.display = 'block';
+                        // Show mode toggle after calibration
+                        modeToggle.style.display = 'flex';
+                        alert(`Calibration complete! (${calibrationClicks} training samples collected)\n\nThe red dot will now follow your gaze.\nYou can now switch to Label Mode or Video Mode.`);
+                        startGazeListener();
+                    }
                 }
             };
         });
@@ -264,13 +295,27 @@ window.onload = function() {
 
     startCalibrationBtn.onclick = async () => {
         try {
+            // If already calibrated, ask user whether to reset or accumulate
+            if (webgazerStarted) {
+                const reset = confirm(
+                    '已有校準資料。\n\n' +
+                    '按「確定」→ 清除舊資料，重新校準\n' +
+                    '按「取消」→ 保留舊資料，追加校準'
+                );
+                if (reset) {
+                    await webgazer.clearData();
+                }
+                gazeHistory.length = 0;
+                initHeatmap();
+                startCalibration();
+                return;
+            }
+
             initHeatmap();
-            
             await webgazer.begin();
-            
             webgazer.showVideoPreview(true);
             webgazer.showPredictionPoints(false);
-            
+
             alert('Webgazer started! Please click on each yellow dot to calibrate.');
             startCalibration();
         } catch (err: any) {
