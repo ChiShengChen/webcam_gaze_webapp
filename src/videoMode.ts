@@ -48,6 +48,10 @@ export class VideoMode {
     private timerInterval: number | null = null;
     private recordStartTimestamp = 0;
     
+    // Fullscreen
+    private isFullscreen = false;
+    private fullscreenFadeTimeout: number | null = null;
+    
     // AOI state
     private aois: AOI[] = [];
     private nextAoiId = 1;
@@ -127,6 +131,28 @@ export class VideoMode {
         window.addEventListener('resize', () => {
             this.updateOverlaySize();
             this.updateAOIOverlaySize();
+        });
+        
+        // Fullscreen controls
+        document.getElementById('fullscreen-pause-btn')!.addEventListener('click', () => {
+            this.pauseRecording();
+        });
+        
+        document.getElementById('fullscreen-stop-btn')!.addEventListener('click', () => {
+            this.stopRecording();
+        });
+        
+        document.addEventListener('fullscreenchange', () => {
+            this.isFullscreen = !!document.fullscreenElement;
+            if (this.isFullscreen) {
+                setTimeout(() => this.updateOverlaySize(), 100);
+            } else {
+                this.updateOverlaySize();
+            }
+        });
+        
+        this.videoContainer.addEventListener('mousemove', () => {
+            this.resetFullscreenFade();
         });
         
         this.setupAOIListeners();
@@ -287,7 +313,6 @@ export class VideoMode {
         draw();
     }
     
-    // Recording controls
     private startRecording(): void {
         if (!this.video.src) return;
         
@@ -296,7 +321,8 @@ export class VideoMode {
         this.recordingStartTime = new Date();
         this.recordStartTimestamp = Date.now();
         
-        // Start video playback
+        this.enterFullscreen();
+        
         this.video.play();
         
         // Start audio recording if microphone is connected
@@ -329,6 +355,8 @@ export class VideoMode {
         
         this.isPaused = !this.isPaused;
         
+        const fsPauseBtn = document.getElementById('fullscreen-pause-btn') as HTMLButtonElement;
+        
         if (this.isPaused) {
             this.video.pause();
             if (this.mediaRecorder?.state === 'recording') {
@@ -336,6 +364,7 @@ export class VideoMode {
             }
             this.stopTimer();
             (document.getElementById('video-pause-btn') as HTMLButtonElement).textContent = '▶ Resume';
+            if (fsPauseBtn) fsPauseBtn.textContent = '▶ Resume';
         } else {
             this.video.play();
             if (this.mediaRecorder?.state === 'paused') {
@@ -343,6 +372,7 @@ export class VideoMode {
             }
             this.startTimer();
             (document.getElementById('video-pause-btn') as HTMLButtonElement).textContent = '⏸ Pause';
+            if (fsPauseBtn) fsPauseBtn.textContent = '⏸ Pause';
         }
     }
     
@@ -351,7 +381,8 @@ export class VideoMode {
         this.isPaused = false;
         this.recordingEndTime = new Date();
         
-        // Stop video
+        this.exitFullscreen();
+        
         this.video.pause();
         
         // Stop audio recording
@@ -413,7 +444,11 @@ export class VideoMode {
     private startTimer(): void {
         this.timerInterval = window.setInterval(() => {
             const elapsed = (Date.now() - this.recordStartTimestamp) / 1000;
-            document.getElementById('record-time')!.textContent = this.formatTime(elapsed);
+            const formatted = this.formatTime(elapsed);
+            document.getElementById('record-time')!.textContent = formatted;
+            
+            const fsTime = document.getElementById('fullscreen-time');
+            if (fsTime) fsTime.textContent = formatted;
         }, 100);
     }
     
@@ -422,6 +457,43 @@ export class VideoMode {
             clearInterval(this.timerInterval);
             this.timerInterval = null;
         }
+    }
+    
+    private resetFullscreenFade(): void {
+        const controls = document.getElementById('fullscreen-controls');
+        if (!controls) return;
+        
+        controls.classList.remove('faded');
+        
+        if (this.fullscreenFadeTimeout) {
+            clearTimeout(this.fullscreenFadeTimeout);
+        }
+        
+        if (this.isFullscreen && this.isRecording) {
+            this.fullscreenFadeTimeout = window.setTimeout(() => {
+                controls.classList.add('faded');
+            }, 3000);
+        }
+    }
+    
+    private async enterFullscreen(): Promise<void> {
+        try {
+            await this.videoContainer.requestFullscreen();
+            this.isFullscreen = true;
+        } catch (err) {
+            console.warn('Fullscreen request denied:', err);
+        }
+    }
+    
+    private async exitFullscreen(): Promise<void> {
+        if (document.fullscreenElement) {
+            try {
+                await document.exitFullscreen();
+            } catch (err) {
+                console.warn('Exit fullscreen failed:', err);
+            }
+        }
+        this.isFullscreen = false;
     }
     
     private formatTime(seconds: number): string {
@@ -443,25 +515,63 @@ export class VideoMode {
     }
     
     // Gaze tracking integration
-    updateGazePosition(screenX: number, screenY: number): void {
+    private getVideoContentRect(): { left: number; top: number; width: number; height: number } {
         const rect = this.video.getBoundingClientRect();
-        const x = screenX - rect.left;
-        const y = screenY - rect.top;
         
-        // Check if within video bounds
-        if (x >= 0 && x < rect.width && y >= 0 && y < rect.height) {
-            // Normalize to 0-1
-            const normalizedX = x / rect.width;
-            const normalizedY = y / rect.height;
+        if (!this.isFullscreen || !this.videoWidth || !this.videoHeight) {
+            return { left: rect.left, top: rect.top, width: rect.width, height: rect.height };
+        }
+        
+        const videoAspect = this.videoWidth / this.videoHeight;
+        const containerAspect = rect.width / rect.height;
+        
+        let contentWidth: number, contentHeight: number, offsetX: number, offsetY: number;
+        
+        if (videoAspect > containerAspect) {
+            contentWidth = rect.width;
+            contentHeight = rect.width / videoAspect;
+            offsetX = 0;
+            offsetY = (rect.height - contentHeight) / 2;
+        } else {
+            contentHeight = rect.height;
+            contentWidth = rect.height * videoAspect;
+            offsetX = (rect.width - contentWidth) / 2;
+            offsetY = 0;
+        }
+        
+        return {
+            left: rect.left + offsetX,
+            top: rect.top + offsetY,
+            width: contentWidth,
+            height: contentHeight
+        };
+    }
+    
+    updateGazePosition(screenX: number, screenY: number): void {
+        const contentRect = this.getVideoContentRect();
+        const x = screenX - contentRect.left;
+        const y = screenY - contentRect.top;
+        
+        if (x >= 0 && x < contentRect.width && y >= 0 && y < contentRect.height) {
+            const normalizedX = x / contentRect.width;
+            const normalizedY = y / contentRect.height;
             
-            // Update cursor position
             this.gazeCursor.style.display = 'block';
-            this.gazeCursor.style.left = `${x + this.video.offsetLeft}px`;
-            this.gazeCursor.style.top = `${y + this.video.offsetTop}px`;
+            if (this.isFullscreen) {
+                this.gazeCursor.style.left = `${screenX}px`;
+                this.gazeCursor.style.top = `${screenY}px`;
+                this.gazeCursor.style.position = 'fixed';
+            } else {
+                this.gazeCursor.style.left = `${x + this.video.offsetLeft}px`;
+                this.gazeCursor.style.top = `${y + this.video.offsetTop}px`;
+                this.gazeCursor.style.position = 'absolute';
+            }
             
-            // Update coordinates display
-            document.getElementById('video-gaze-coords')!.textContent = 
-                `Gaze: (${Math.round(normalizedX * this.videoWidth)}, ${Math.round(normalizedY * this.videoHeight)})`;
+            const gazeText = `Gaze: (${Math.round(normalizedX * this.videoWidth)}, ${Math.round(normalizedY * this.videoHeight)})`;
+            document.getElementById('video-gaze-coords')!.textContent = gazeText;
+            
+            const fsGazeInfo = document.getElementById('fullscreen-gaze-info');
+            if (fsGazeInfo) fsGazeInfo.textContent = gazeText;
             
             // Record gaze point if recording
             if (this.isRecording && !this.isPaused) {
@@ -480,8 +590,7 @@ export class VideoMode {
                 document.getElementById('gaze-point-count')!.textContent = `Points recorded: ${this.gazePoints.length}`;
                 document.getElementById('session-gaze-count')!.textContent = this.gazePoints.length.toString();
                 
-                // Draw gaze point on overlay
-                this.drawGazePoint(x, y);
+                this.drawGazePoint(normalizedX * this.gazeOverlay.width, normalizedY * this.gazeOverlay.height);
             }
         } else {
             this.gazeCursor.style.display = 'none';
