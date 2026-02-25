@@ -124,13 +124,20 @@ button:disabled {
 
 .calibration-dot {
   position: absolute;
-  width: 20px;
-  height: 20px;
+  width: 30px;
+  height: 30px;
   background-color: yellow;
   border: 2px solid black;
   border-radius: 50%;
   cursor: pointer;
   transform: translate(-50%, -50%);
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  font-size: 10px;
+  font-weight: bold;
+  color: #000;
+  user-select: none;
 }
 
 #calibration-instructions {
@@ -809,6 +816,90 @@ kbd {
   background: #ff9800;
   border-radius: 50%;
   transform: translate(-50%, -50%);
+}
+
+/* Fullscreen mode */
+#video-player-container:fullscreen {
+  background: #000;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+}
+
+#video-player-container:fullscreen #annotation-video {
+  max-width: 100vw;
+  max-height: 100vh;
+  width: 100vw;
+  height: 100vh;
+  object-fit: contain;
+}
+
+#video-player-container:fullscreen #video-gaze-overlay {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100vw;
+  height: 100vh;
+}
+
+#fullscreen-controls {
+  display: none;
+  position: absolute;
+  bottom: 20px;
+  left: 50%;
+  transform: translateX(-50%);
+  background: rgba(0, 0, 0, 0.75);
+  padding: 10px 20px;
+  border-radius: 30px;
+  gap: 12px;
+  align-items: center;
+  z-index: 10010;
+  backdrop-filter: blur(8px);
+  transition: opacity 0.3s;
+}
+
+#video-player-container:fullscreen #fullscreen-controls {
+  display: flex;
+}
+
+#fullscreen-record-indicator {
+  color: #f44336;
+  font-weight: bold;
+  font-size: 14px;
+  animation: pulse 1s infinite;
+}
+
+#fullscreen-time {
+  font-family: monospace;
+  font-size: 14px;
+  color: #fff;
+}
+
+#fullscreen-pause-btn {
+  background: #ff9800;
+  padding: 6px 14px;
+  font-size: 12px;
+}
+
+#fullscreen-stop-btn {
+  background: #f44336;
+  padding: 6px 14px;
+  font-size: 12px;
+}
+
+#fullscreen-gaze-info {
+  font-family: monospace;
+  font-size: 12px;
+  color: #888;
+}
+
+/* Auto-hide fullscreen controls after 3s of no movement */
+#fullscreen-controls.faded {
+  opacity: 0.15;
+}
+
+#fullscreen-controls:hover {
+  opacity: 1 !important;
 }
 
 /* Timeline */
