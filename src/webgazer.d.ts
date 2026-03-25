@@ -24,6 +24,9 @@ declare module 'webgazer' {
         saveDataAcrossSessions(save: boolean): typeof webgazer;
         getCurrentPrediction(): Promise<GazeData | null>;
         clearData(): Promise<void>;
+        recordScreenPosition(x: number, y: number, eventType?: string): typeof webgazer;
+        addMouseEventListeners(): typeof webgazer;
+        removeMouseEventListeners(): typeof webgazer;
     };
 
     export default webgazer;

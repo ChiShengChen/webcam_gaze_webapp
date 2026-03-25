@@ -7,6 +7,8 @@ let currentMode: 'tracker' | 'label' | 'video' = 'tracker';
 let labelMode: LabelMode | null = null;
 let videoMode: VideoMode | null = null;
 let webgazerStarted = false;
+let correctionMode = false;
+let correctionCount = 0;
 
 const gazeHistory: { x: number; y: number }[] = [];
 const SMOOTHING_FRAMES = 5;
@@ -48,6 +50,11 @@ window.onload = function() {
     const clearHeatmapBtn = document.getElementById('clear-heatmap')!;
     const ctx = heatmapCanvas.getContext('2d')!;
 
+    // Correction controls elements
+    const correctionControls = document.getElementById('correction-controls')!;
+    const toggleCorrectionBtn = document.getElementById('toggle-correction-btn')!;
+    const correctionCountSpan = document.getElementById('correction-count')!;
+
     // Heatmap data
     const GRID_SIZE = 50;
     let heatmapData: number[][] = [];
@@ -67,16 +74,18 @@ window.onload = function() {
         labelModeContainer.style.display = mode === 'label' ? 'block' : 'none';
         videoModeContainer.style.display = mode === 'video' ? 'block' : 'none';
         
-        // Handle gaze dot and heatmap visibility
+        // Handle gaze dot, heatmap, and correction controls visibility
         if (mode === 'tracker') {
             if (webgazerStarted) {
                 gazeDot.style.display = 'block';
                 heatmapContainer.style.display = 'block';
+                correctionControls.style.display = 'flex';
                 webgazer.showVideoPreview(true);
             }
         } else {
             gazeDot.style.display = 'none';
             heatmapContainer.style.display = 'none';
+            correctionControls.style.display = 'none';
             if (webgazerStarted) {
                 webgazer.showVideoPreview(false);
             }
@@ -261,7 +270,10 @@ window.onload = function() {
             dot.style.alignItems = 'center';
             dot.style.fontWeight = 'bold';
             
-            dot.onclick = () => {
+            dot.onclick = (e) => {
+                // Manually feed this click to WebGazer as training data
+                webgazer.recordScreenPosition(e.clientX, e.clientY, 'click');
+
                 const count = (dotClicks.get(dot) || 0) + 1;
                 dotClicks.set(dot, count);
                 calibrationClicks++;
@@ -283,15 +295,54 @@ window.onload = function() {
                     if (dotsCompleted >= calibrationDots.length) {
                         calibrationDotsContainer.style.display = 'none';
                         heatmapContainer.style.display = 'block';
-                        // Show mode toggle after calibration
+                        // Show mode toggle and correction controls after calibration
                         modeToggle.style.display = 'flex';
-                        alert(`Calibration complete! (${calibrationClicks} training samples collected)\n\nThe red dot will now follow your gaze.\nYou can now switch to Label Mode or Video Mode.`);
+                        correctionControls.style.display = 'flex';
+                        alert(`Calibration complete! (${calibrationClicks} training samples collected)\n\nThe red dot will now follow your gaze.\n\nTip: Turn on "Click to Correct" at the bottom of the screen — click where you're actually looking to improve accuracy on the fly.`);
                         startGazeListener();
                     }
                 }
             };
         });
     }
+
+    // ==================== Click-to-Correct Mode ====================
+    function showCorrectionRipple(x: number, y: number) {
+        const ripple = document.createElement('div');
+        ripple.className = 'correction-ripple';
+        ripple.style.left = `${x}px`;
+        ripple.style.top = `${y}px`;
+        document.body.appendChild(ripple);
+        ripple.addEventListener('animationend', () => ripple.remove());
+    }
+
+    function handleCorrectionClick(e: MouseEvent) {
+        if (!correctionMode || !webgazerStarted) return;
+        // Ignore clicks on UI controls
+        const target = e.target as HTMLElement;
+        if (target.closest('#mode-toggle, #correction-controls, #heatmap-container, #calibration-instructions, button')) return;
+
+        webgazer.recordScreenPosition(e.clientX, e.clientY, 'click');
+        correctionCount++;
+        correctionCountSpan.textContent = `corrections: ${correctionCount}`;
+        showCorrectionRipple(e.clientX, e.clientY);
+    }
+
+    toggleCorrectionBtn.onclick = () => {
+        correctionMode = !correctionMode;
+        toggleCorrectionBtn.classList.toggle('active', correctionMode);
+        toggleCorrectionBtn.textContent = correctionMode
+            ? '🎯 Click to Correct: ON'
+            : '🎯 Click to Correct: OFF';
+
+        if (correctionMode) {
+            document.body.style.cursor = 'crosshair';
+        } else {
+            document.body.style.cursor = '';
+        }
+    };
+
+    document.addEventListener('click', handleCorrectionClick);
 
     startCalibrationBtn.onclick = async () => {
         try {
@@ -315,6 +366,9 @@ window.onload = function() {
             await webgazer.begin();
             webgazer.showVideoPreview(true);
             webgazer.showPredictionPoints(false);
+            webgazer.applyKalmanFilter(true);
+            // Prevent WebGazer from auto-learning on every click (we handle it explicitly in correction mode)
+            webgazer.removeMouseEventListeners();
 
             alert('Webgazer started! Please click on each yellow dot to calibrate.');
             startCalibration();
