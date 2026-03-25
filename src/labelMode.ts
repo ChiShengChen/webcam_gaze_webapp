@@ -384,6 +384,13 @@ export class LabelMode {
         }
     }
     
+    /** Public trigger for blink-based segmentation */
+    triggerSegmentation(): void {
+        if (this.isLabelModeActive()) {
+            this.segmentAtGaze();
+        }
+    }
+
     // Segmentation
     async segmentAtGaze(): Promise<void> {
         if (!this.currentGazePosition || !this.currentLabelId || !this.currentImageId) {

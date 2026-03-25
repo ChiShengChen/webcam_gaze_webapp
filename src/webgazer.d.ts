@@ -27,6 +27,7 @@ declare module 'webgazer' {
         recordScreenPosition(x: number, y: number, eventType?: string): typeof webgazer;
         addMouseEventListeners(): typeof webgazer;
         removeMouseEventListeners(): typeof webgazer;
+        getTracker(): { getPositions(): number[][] | null };
     };
 
     export default webgazer;

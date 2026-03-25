@@ -2,6 +2,7 @@ import './style.css';
 import webgazer from 'webgazer';
 import { LabelMode } from './labelMode';
 import { VideoMode } from './videoMode';
+import { BlinkDetector } from './blinkDetector';
 
 let currentMode: 'tracker' | 'label' | 'video' = 'tracker';
 let labelMode: LabelMode | null = null;
@@ -9,6 +10,7 @@ let videoMode: VideoMode | null = null;
 let webgazerStarted = false;
 let correctionMode = false;
 let correctionCount = 0;
+const blinkDetector = new BlinkDetector();
 
 const gazeHistory: { x: number; y: number }[] = [];
 const SMOOTHING_FRAMES = 5;
@@ -223,19 +225,44 @@ window.onload = function() {
         initHeatmap();
     };
 
+    // ==================== Blink Marker (Gaze Tracker mode) ====================
+    function showBlinkMarker(x: number, y: number) {
+        const marker = document.createElement('div');
+        marker.className = 'blink-marker';
+        marker.style.left = `${x}px`;
+        marker.style.top = `${y}px`;
+        document.body.appendChild(marker);
+        marker.addEventListener('animationend', () => marker.remove());
+    }
+
+    // Register blink handler for tracker mode
+    blinkDetector.onBlink((gazeX, gazeY) => {
+        if (currentMode === 'tracker') {
+            showBlinkMarker(gazeX, gazeY);
+        } else if (currentMode === 'label' && labelMode) {
+            labelMode.triggerSegmentation();
+        } else if (currentMode === 'video' && videoMode) {
+            // Could be used for video bookmarking in the future
+        }
+    });
+
     function startGazeListener() {
         gazeDot.style.display = 'block';
         webgazerStarted = true;
-        
+        blinkDetector.start();
+
         webgazer.setGazeListener((data, _elapsedTime) => {
             if (data == null) {
                 return;
             }
-            
+
             const smoothed = smoothGaze(data.x, data.y);
             const x = smoothed.x;
             const y = smoothed.y;
-            
+
+            // Keep blink detector aware of latest gaze position
+            blinkDetector.updateGaze(x, y);
+
             if (currentMode === 'tracker') {
                 gazeDot.style.left = `${x}px`;
                 gazeDot.style.top = `${y}px`;
