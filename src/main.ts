@@ -82,12 +82,14 @@ window.onload = function() {
                 gazeDot.style.display = 'block';
                 heatmapContainer.style.display = 'block';
                 correctionControls.style.display = 'flex';
+                blinkLogContainer.style.display = 'flex';
                 webgazer.showVideoPreview(true);
             }
         } else {
             gazeDot.style.display = 'none';
             heatmapContainer.style.display = 'none';
             correctionControls.style.display = 'none';
+            blinkLogContainer.style.display = 'none';
             if (webgazerStarted) {
                 webgazer.showVideoPreview(false);
             }
@@ -225,7 +227,24 @@ window.onload = function() {
         initHeatmap();
     };
 
-    // ==================== Blink Marker (Gaze Tracker mode) ====================
+    // ==================== Blink Log & Marker (Gaze Tracker mode) ====================
+    const blinkLogContainer = document.getElementById('blink-log-container')!;
+    const blinkLogList = document.getElementById('blink-log-list')!;
+    const blinkTotalCount = document.getElementById('blink-total-count')!;
+    const clearBlinkLogBtn = document.getElementById('clear-blink-log')!;
+    const exportBlinkLogBtn = document.getElementById('export-blink-log')!;
+
+    interface BlinkRecord {
+        index: number;
+        time: string;
+        x: number;
+        y: number;
+        screenX: number;
+        screenY: number;
+    }
+    const blinkRecords: BlinkRecord[] = [];
+    let blinkIndex = 0;
+
     function showBlinkMarker(x: number, y: number) {
         const marker = document.createElement('div');
         marker.className = 'blink-marker';
@@ -235,10 +254,58 @@ window.onload = function() {
         marker.addEventListener('animationend', () => marker.remove());
     }
 
-    // Register blink handler for tracker mode
+    function addBlinkToLog(x: number, y: number) {
+        blinkIndex++;
+        const now = new Date();
+        const timeStr = now.toLocaleTimeString('en-US', { hour12: false }) + '.' + String(now.getMilliseconds()).padStart(3, '0');
+        const normX = +(x / window.innerWidth).toFixed(3);
+        const normY = +(y / window.innerHeight).toFixed(3);
+
+        const record: BlinkRecord = {
+            index: blinkIndex,
+            time: timeStr,
+            x: normX,
+            y: normY,
+            screenX: Math.round(x),
+            screenY: Math.round(y),
+        };
+        blinkRecords.push(record);
+        blinkTotalCount.textContent = String(blinkRecords.length);
+
+        // Add entry to top of list
+        const entry = document.createElement('div');
+        entry.className = 'blink-log-entry';
+        entry.innerHTML = `<span class="blink-time">#${record.index} ${record.time}</span><span class="blink-coords">(${record.screenX}, ${record.screenY})</span>`;
+        blinkLogList.prepend(entry);
+    }
+
+    clearBlinkLogBtn.onclick = () => {
+        blinkRecords.length = 0;
+        blinkIndex = 0;
+        blinkLogList.innerHTML = '';
+        blinkTotalCount.textContent = '0';
+    };
+
+    exportBlinkLogBtn.onclick = () => {
+        if (blinkRecords.length === 0) return;
+        const header = 'index,time,norm_x,norm_y,screen_x,screen_y\n';
+        const csv = header + blinkRecords.map(r =>
+            `${r.index},${r.time},${r.x},${r.y},${r.screenX},${r.screenY}`
+        ).join('\n');
+        const blob = new Blob([csv], { type: 'text/csv' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `blink_log_${new Date().toISOString().slice(0, 19).replace(/:/g, '-')}.csv`;
+        a.click();
+        URL.revokeObjectURL(url);
+    };
+
+    // Register blink handler
     blinkDetector.onBlink((gazeX, gazeY) => {
         if (currentMode === 'tracker') {
             showBlinkMarker(gazeX, gazeY);
+            addBlinkToLog(gazeX, gazeY);
         } else if (currentMode === 'label' && labelMode) {
             labelMode.triggerSegmentation();
         } else if (currentMode === 'video' && videoMode) {
@@ -331,6 +398,7 @@ window.onload = function() {
                         // Show mode toggle and correction controls after calibration
                         modeToggle.style.display = 'flex';
                         correctionControls.style.display = 'flex';
+                        blinkLogContainer.style.display = 'flex';
                         alert(`Calibration complete! (${calibrationClicks} training samples collected)\n\nThe red dot will now follow your gaze.\n\nTip: Turn on "Click to Correct" at the bottom of the screen — click where you're actually looking to improve accuracy on the fly.`);
                         startGazeListener();
                     }

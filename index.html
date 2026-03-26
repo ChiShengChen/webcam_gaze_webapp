@@ -26,6 +26,17 @@
           <button id="start-calibration">Start Calibration</button>
         </div>
 
+        <!-- Blink Log Panel -->
+        <div id="blink-log-container" style="display: none;">
+          <div id="blink-log-header">
+            <span>Blink Log</span>
+            <span id="blink-total-count">0</span>
+            <button id="clear-blink-log">Clear</button>
+            <button id="export-blink-log">Export</button>
+          </div>
+          <div id="blink-log-list"></div>
+        </div>
+
         <!-- Click-to-correct controls -->
         <div id="correction-controls" style="display: none;">
           <button id="toggle-correction-btn" title="Enable click-to-correct: click anywhere to tell the tracker where you're looking">🎯 Click to Correct: OFF</button>

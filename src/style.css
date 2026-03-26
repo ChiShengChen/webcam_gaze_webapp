@@ -145,6 +145,78 @@ button:disabled {
   margin-top: 60px;
 }
 
+/* Blink Log Panel */
+#blink-log-container {
+  position: fixed;
+  bottom: 70px;
+  right: 10px;
+  width: 280px;
+  max-height: 300px;
+  background-color: rgba(0, 0, 0, 0.85);
+  border-radius: 8px;
+  padding: 10px;
+  z-index: 10000;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+  display: flex;
+  flex-direction: column;
+}
+
+#blink-log-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 8px;
+  color: #fff;
+  font-size: 14px;
+}
+
+#blink-log-header span:first-child {
+  flex: 1;
+  font-weight: bold;
+}
+
+#blink-total-count {
+  background: #ffd700;
+  color: #000;
+  border-radius: 10px;
+  padding: 1px 8px;
+  font-size: 12px;
+  font-weight: bold;
+}
+
+#blink-log-header button {
+  padding: 2px 8px;
+  font-size: 12px;
+  border-radius: 4px;
+}
+
+#blink-log-list {
+  overflow-y: auto;
+  max-height: 240px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.blink-log-entry {
+  display: flex;
+  justify-content: space-between;
+  font-size: 12px;
+  color: #ccc;
+  padding: 3px 6px;
+  background: rgba(255, 255, 255, 0.05);
+  border-radius: 4px;
+  font-family: monospace;
+}
+
+.blink-log-entry .blink-time {
+  color: #888;
+}
+
+.blink-log-entry .blink-coords {
+  color: #ffd700;
+}
+
 /* Click-to-Correct Controls */
 #correction-controls {
   position: fixed;
