@@ -1,47 +1,44 @@
-import webgazer from 'webgazer';
-
 /**
- * Blink detection using Eye Aspect Ratio (EAR) from MediaPipe FaceMesh landmarks.
+ * Blink detection using eye patch pixel analysis.
  *
- * EAR = (|p2-p6| + |p3-p5|) / (2 * |p1-p4|)
+ * Instead of EAR (which doesn't work well with FaceMesh),
+ * we analyze the raw eye patch images that WebGazer extracts each frame.
  *
- * MediaPipe FaceMesh eye landmarks used:
- *   Right eye: 33(outer), 160(upper1), 158(upper2), 133(inner), 153(lower2), 144(lower1)
- *   Left eye:  362(outer), 385(upper1), 387(upper2), 263(inner), 373(lower2), 380(lower1)
+ * Open eyes → high contrast pixels (pupil, iris, sclera) → high variance
+ * Closed eyes → uniform eyelid skin → low variance
+ *
+ * Uses adaptive threshold: blink = variance drops below baseline * ratio.
  */
 
-// FaceMesh landmark indices for EAR calculation
-const RIGHT_EYE = { p1: 33, p2: 160, p3: 158, p4: 133, p5: 153, p6: 144 };
-const LEFT_EYE  = { p1: 362, p2: 385, p3: 387, p4: 263, p5: 373, p6: 380 };
-
-const EAR_THRESHOLD = 0.2;           // Below this = eye closed
-const BLINK_MIN_FRAMES = 2;          // Minimum consecutive closed frames to count as blink
-const BLINK_MAX_FRAMES = 10;         // Maximum frames — longer = intentional close, not blink
-const BLINK_COOLDOWN_MS = 400;       // Ignore blinks within this window after last blink
+const VARIANCE_DROP_RATIO = 0.75;    // Blink when variance < baseline * ratio (~25% drop)
+const BASELINE_WINDOW = 30;          // Frames for running baseline
+const BLINK_MIN_FRAMES = 1;          // Min consecutive low-variance frames
+const BLINK_MAX_FRAMES = 15;         // Max frames (longer = intentional close)
+const BLINK_COOLDOWN_MS = 400;       // Cooldown between blinks
 
 export type BlinkCallback = (gazeX: number, gazeY: number) => void;
 
-function dist(a: number[], b: number[]): number {
-    const dx = a[0] - b[0];
-    const dy = a[1] - b[1];
-    return Math.sqrt(dx * dx + dy * dy);
-}
+/** Compute grayscale pixel variance of an ImageData patch */
+function patchVariance(patch: ImageData): number {
+    const data = patch.data; // RGBA
+    const len = data.length / 4;
+    if (len === 0) return 0;
 
-function computeEAR(positions: number[][], eye: typeof RIGHT_EYE): number {
-    const p1 = positions[eye.p1];
-    const p2 = positions[eye.p2];
-    const p3 = positions[eye.p3];
-    const p4 = positions[eye.p4];
-    const p5 = positions[eye.p5];
-    const p6 = positions[eye.p6];
-    if (!p1 || !p2 || !p3 || !p4 || !p5 || !p6) return 1;
+    let sum = 0;
+    for (let i = 0; i < data.length; i += 4) {
+        // Grayscale: 0.299R + 0.587G + 0.114B
+        const gray = 0.299 * data[i] + 0.587 * data[i + 1] + 0.114 * data[i + 2];
+        sum += gray;
+    }
+    const mean = sum / len;
 
-    const vertical1 = dist(p2, p6);
-    const vertical2 = dist(p3, p5);
-    const horizontal = dist(p1, p4);
-    if (horizontal === 0) return 1;
-
-    return (vertical1 + vertical2) / (2 * horizontal);
+    let variance = 0;
+    for (let i = 0; i < data.length; i += 4) {
+        const gray = 0.299 * data[i] + 0.587 * data[i + 1] + 0.114 * data[i + 2];
+        const diff = gray - mean;
+        variance += diff * diff;
+    }
+    return variance / len;
 }
 
 export class BlinkDetector {
@@ -49,73 +46,61 @@ export class BlinkDetector {
     private lastBlinkTime = 0;
     private callbacks: BlinkCallback[] = [];
     private enabled = false;
-    private pollTimer: number | null = null;
     private lastGazeX = 0;
     private lastGazeY = 0;
 
-    /** Register a blink callback */
+    // Adaptive baseline
+    private varianceHistory: number[] = [];
+    private baseline = 0;
     onBlink(cb: BlinkCallback): void {
         this.callbacks.push(cb);
     }
 
-    /** Remove a specific callback */
     offBlink(cb: BlinkCallback): void {
         this.callbacks = this.callbacks.filter(c => c !== cb);
     }
 
-    /** Update latest gaze position (called from gaze listener) */
     updateGaze(x: number, y: number): void {
         this.lastGazeX = x;
         this.lastGazeY = y;
     }
 
-    /** Start polling for blinks */
     start(): void {
         if (this.enabled) return;
         this.enabled = true;
-        this.poll();
+        this.varianceHistory = [];
+        this.baseline = 0;
     }
 
-    /** Stop polling */
     stop(): void {
         this.enabled = false;
-        if (this.pollTimer !== null) {
-            cancelAnimationFrame(this.pollTimer);
-            this.pollTimer = null;
-        }
     }
 
     get isEnabled(): boolean {
         return this.enabled;
     }
 
-    private poll = (): void => {
-        if (!this.enabled) return;
+    /**
+     * Called from gaze listener with eye patch data each frame.
+     * No more rAF polling — we process exactly when WebGazer has new data.
+     */
+    processEyePatches(leftPatch: ImageData | null, rightPatch: ImageData | null): void {
+        if (!this.enabled || !leftPatch || !rightPatch) return;
 
-        try {
-            const tracker = (webgazer as any).getTracker();
-            if (tracker) {
-                const positions: number[][] | null = tracker.getPositions();
-                if (positions && positions.length >= 468) {
-                    this.processFrame(positions);
-                }
-            }
-        } catch {
-            // tracker not ready yet
-        }
+        const varL = patchVariance(leftPatch);
+        const varR = patchVariance(rightPatch);
+        const avgVar = (varL + varR) / 2;
 
-        this.pollTimer = requestAnimationFrame(this.poll);
-    };
+        const threshold = this.baseline * VARIANCE_DROP_RATIO;
+        const isClosed = this.baseline > 0 && avgVar < threshold;
 
-    private processFrame(positions: number[][]): void {
-        const earLeft = computeEAR(positions, LEFT_EYE);
-        const earRight = computeEAR(positions, RIGHT_EYE);
-        const ear = (earLeft + earRight) / 2;
-
-        if (ear < EAR_THRESHOLD) {
+        if (isClosed) {
             this.closedFrames++;
         } else {
-            // Eyes just opened — check if it was a valid blink
+            // Eyes open — update baseline
+            this.updateBaseline(avgVar);
+
+            // Check if just finished a valid blink
             if (
                 this.closedFrames >= BLINK_MIN_FRAMES &&
                 this.closedFrames <= BLINK_MAX_FRAMES
@@ -128,6 +113,15 @@ export class BlinkDetector {
             }
             this.closedFrames = 0;
         }
+    }
+
+    private updateBaseline(variance: number): void {
+        this.varianceHistory.push(variance);
+        if (this.varianceHistory.length > BASELINE_WINDOW) {
+            this.varianceHistory.shift();
+        }
+        const sorted = [...this.varianceHistory].sort((a, b) => a - b);
+        this.baseline = sorted[Math.floor(sorted.length / 2)];
     }
 
     private emitBlink(): void {

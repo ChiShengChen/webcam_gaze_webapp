@@ -260,8 +260,14 @@ window.onload = function() {
             const x = smoothed.x;
             const y = smoothed.y;
 
-            // Keep blink detector aware of latest gaze position
+            // Feed blink detector with gaze position + eye patches
             blinkDetector.updateGaze(x, y);
+            if (data.eyeFeatures) {
+                blinkDetector.processEyePatches(
+                    data.eyeFeatures.left?.patch ?? null,
+                    data.eyeFeatures.right?.patch ?? null
+                );
+            }
 
             if (currentMode === 'tracker') {
                 gazeDot.style.left = `${x}px`;

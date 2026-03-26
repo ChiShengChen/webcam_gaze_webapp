@@ -1,7 +1,21 @@
 declare module 'webgazer' {
+    interface EyePatch {
+        patch: ImageData;
+        imagex: number;
+        imagey: number;
+        width: number;
+        height: number;
+    }
+
+    interface EyeFeatures {
+        left: EyePatch;
+        right: EyePatch;
+    }
+
     interface GazeData {
         x: number;
         y: number;
+        eyeFeatures?: EyeFeatures;
     }
 
     type GazeListener = (data: GazeData | null, elapsedTime: number) => void;
