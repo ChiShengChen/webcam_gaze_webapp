@@ -1,0 +1,272 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Gaze Tracker v2</title>
+    <style>
+      * { box-sizing: border-box; }
+      html, body {
+        margin: 0;
+        padding: 0;
+        background: #0c0c10;
+        color: #ddd;
+        font-family: system-ui, -apple-system, sans-serif;
+        height: 100%;
+        overflow: hidden;
+      }
+
+      /* ---------- HUD (top-left) ---------- */
+      #hud {
+        position: fixed;
+        top: 12px;
+        left: 12px;
+        background: rgba(0, 0, 0, 0.7);
+        padding: 10px 14px;
+        border-radius: 8px;
+        font-family: ui-monospace, monospace;
+        font-size: 12px;
+        line-height: 1.6;
+        z-index: 100;
+        min-width: 180px;
+      }
+      #hud h2 {
+        margin: 0 0 8px;
+        font-size: 13px;
+        font-weight: 600;
+        color: #9cf;
+      }
+      #hud .row { display: flex; justify-content: space-between; }
+      #hud .row b { color: #fff; font-weight: 500; }
+
+      /* ---------- Controls (top-centre) ---------- */
+      #controls {
+        position: fixed;
+        top: 12px;
+        left: 50%;
+        transform: translateX(-50%);
+        display: flex;
+        gap: 8px;
+        background: rgba(0, 0, 0, 0.7);
+        padding: 8px 12px;
+        border-radius: 30px;
+        z-index: 100;
+      }
+      #controls button {
+        background: #222;
+        color: #eee;
+        border: 1px solid #444;
+        padding: 6px 14px;
+        border-radius: 20px;
+        font-size: 13px;
+        cursor: pointer;
+      }
+      #controls button:hover:not(:disabled) {
+        background: #333;
+        border-color: #666;
+      }
+      #controls button:disabled { opacity: 0.4; cursor: not-allowed; }
+      #controls .primary {
+        background: #2a5;
+        border-color: #2a5;
+      }
+      #controls .primary:hover:not(:disabled) { background: #3b6; }
+
+      /* ---------- Preview canvas (top-right) ---------- */
+      #preview-wrap {
+        position: fixed;
+        top: 12px;
+        right: 12px;
+        background: #000;
+        border-radius: 8px;
+        padding: 4px;
+        z-index: 100;
+      }
+      #preview-wrap .label {
+        font-size: 10px;
+        color: #888;
+        text-align: center;
+        font-family: ui-monospace, monospace;
+        padding: 2px 0;
+      }
+      #display {
+        display: block;
+        width: 320px;
+        height: 180px;
+        background: #000;
+        border-radius: 4px;
+      }
+
+      /* ---------- Head distance warning ---------- */
+      #head-warning {
+        position: fixed;
+        top: 70px;
+        left: 50%;
+        transform: translateX(-50%);
+        display: none;
+        background: rgba(200, 60, 40, 0.92);
+        color: #fff;
+        padding: 10px 22px;
+        border-radius: 24px;
+        font-size: 14px;
+        font-weight: 500;
+        letter-spacing: 0.3px;
+        box-shadow: 0 4px 16px rgba(0, 0, 0, 0.5);
+        z-index: 150;
+        animation: warn-pulse 1.8s ease-in-out infinite;
+      }
+      #head-warning.visible { display: block; }
+      #head-warning .icon {
+        display: inline-block;
+        margin-right: 6px;
+        font-size: 16px;
+      }
+      @keyframes warn-pulse {
+        0%, 100% { box-shadow: 0 4px 16px rgba(0, 0, 0, 0.5); }
+        50%      { box-shadow: 0 4px 16px rgba(0, 0, 0, 0.5), 0 0 28px rgba(255, 100, 80, 0.7); }
+      }
+
+      /* ---------- Gaze cursor (follows eyes) ---------- */
+      #gaze-cursor {
+        position: fixed;
+        display: none;
+        width: 22px;
+        height: 22px;
+        border-radius: 50%;
+        background: rgba(240, 80, 80, 0.35);
+        border: 2px solid rgba(255, 255, 255, 0.9);
+        pointer-events: none;
+        transform: translate(-50%, -50%);
+        z-index: 200;
+        transition: transform 40ms linear;
+        box-shadow: 0 0 12px rgba(240, 80, 80, 0.6);
+      }
+      #gaze-cursor.flash {
+        background: rgba(80, 240, 120, 0.6);
+        box-shadow: 0 0 20px rgba(80, 240, 120, 0.9);
+      }
+
+      /* ---------- Calibration overlay ---------- */
+      #calib-overlay {
+        position: fixed;
+        inset: 0;
+        background: rgba(0, 0, 0, 0.72);
+        display: none;
+        z-index: 300;
+      }
+      #calib-dot {
+        position: fixed;
+        width: 32px;
+        height: 32px;
+        border-radius: 50%;
+        background: #ffd700;
+        border: 3px solid #fff;
+        cursor: pointer;
+        transform: translate(-50%, -50%);
+        box-shadow: 0 0 20px rgba(255, 215, 0, 0.8);
+        animation: pulse 1.3s ease-in-out infinite;
+      }
+      @keyframes pulse {
+        0%, 100% { transform: translate(-50%, -50%) scale(1); }
+        50%      { transform: translate(-50%, -50%) scale(1.25); }
+      }
+      #calib-status {
+        position: fixed;
+        top: 48%;
+        left: 50%;
+        transform: translateX(-50%);
+        color: #fff;
+        font-size: 14px;
+        text-align: center;
+        width: 320px;
+      }
+      #abort-calib-btn {
+        position: fixed;
+        bottom: 30px;
+        left: 50%;
+        transform: translateX(-50%);
+        background: #633;
+        color: #fff;
+        border: 1px solid #844;
+        padding: 8px 18px;
+        border-radius: 20px;
+        font-size: 13px;
+        cursor: pointer;
+      }
+
+      /* ---------- Blink log (bottom-right) ---------- */
+      #blink-log-wrap {
+        position: fixed;
+        bottom: 12px;
+        right: 12px;
+        width: 280px;
+        max-height: 240px;
+        background: rgba(0, 0, 0, 0.75);
+        padding: 8px 10px;
+        border-radius: 8px;
+        font-family: ui-monospace, monospace;
+        font-size: 11px;
+        z-index: 100;
+      }
+      #blink-log-wrap h3 {
+        margin: 0 0 6px;
+        font-size: 12px;
+        color: #9cf;
+        font-weight: 600;
+      }
+      #blink-log {
+        max-height: 200px;
+        overflow-y: auto;
+      }
+      .blink-entry {
+        padding: 2px 4px;
+        color: #bbb;
+        border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+      }
+      .blink-entry:first-child { color: #ff9; }
+    </style>
+  </head>
+  <body>
+
+    <div id="hud">
+      <h2>gaze v2 · status</h2>
+      <div class="row"><span>capture</span><b id="capture-fps">—</b></div>
+      <div class="row"><span>pipeline</span><b id="pipeline-fps">—</b></div>
+      <div class="row"><span>dropped</span><b id="dropped">0</b></div>
+      <div class="row"><span>face</span><b id="face-state">—</b></div>
+      <div class="row"><span>iris conf</span><b id="iris-conf">—</b></div>
+      <div class="row"><span>model</span><b id="model-state">uncalibrated</b></div>
+      <div class="row"><span>iris profile</span><b id="profile-iris">cold</b></div>
+      <div class="row"><span>ipd px</span><b id="profile-ipd">—</b></div>
+      <div class="row"><span>eye var</span><b id="profile-var">—</b></div>
+    </div>
+
+    <div id="controls">
+      <button id="start-btn" class="primary">Start camera</button>
+      <button id="stop-btn" disabled>Stop</button>
+      <button id="calib-btn" disabled>Calibrate (9-pt)</button>
+    </div>
+
+    <div id="head-warning"><span class="icon">⚠</span><span id="head-warning-text"></span></div>
+
+    <div id="preview-wrap">
+      <canvas id="display" width="1280" height="720"></canvas>
+      <div class="label">live preview · face / iris overlay</div>
+    </div>
+
+    <div id="gaze-cursor"></div>
+
+    <div id="calib-overlay">
+      <div id="calib-status">Click the dot while looking at it.</div>
+      <div id="calib-dot"></div>
+      <button id="abort-calib-btn">Cancel</button>
+    </div>
+
+    <div id="blink-log-wrap">
+      <h3>blink log (◦ short · ⭘ long = click)</h3>
+      <div id="blink-log"></div>
+    </div>
+
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>
