@@ -48,6 +48,10 @@ export interface OverallStats {
     /** Screen size used for the run (for downstream visualisation). */
     screenWidth: number;
     screenHeight: number;
+    /** Approximate px-per-degree assumption used for the degree readouts. */
+    pxPerDegree: number;
+    meanErrorDeg: number;
+    medianErrorDeg: number;
 }
 
 function median(values: number[]): number {
@@ -69,7 +73,8 @@ export function computeCellStats(
     rows: number,
     cols: number,
     screenW: number,
-    screenH: number
+    screenH: number,
+    pxPerDegree: number
 ): { cells: CellStats[]; overall: OverallStats } {
     const byCell = new Map<number, Sample[]>();
     for (const s of samples) {
@@ -108,15 +113,20 @@ export function computeCellStats(
 
     const allErrors = samples.map(s => s.errorPx);
     const hits = cells.filter(c => c.hit).length;
+    const meanPx = allErrors.length ? allErrors.reduce((a, b) => a + b, 0) / allErrors.length : 0;
+    const medianPx = median(allErrors);
     const overall: OverallStats = {
         totalSamples: samples.length,
         cellsCovered: cells.length,
         cellsTotal: rows * cols,
-        meanErrorPx: allErrors.length ? allErrors.reduce((a, b) => a + b, 0) / allErrors.length : 0,
-        medianErrorPx: median(allErrors),
+        meanErrorPx: meanPx,
+        medianErrorPx: medianPx,
         hitRatePct: cells.length ? (hits / cells.length) * 100 : 0,
         screenWidth: screenW,
         screenHeight: screenH,
+        pxPerDegree,
+        meanErrorDeg: meanPx / pxPerDegree,
+        medianErrorDeg: medianPx / pxPerDegree,
     };
     return { cells, overall };
 }
@@ -183,10 +193,13 @@ export function buildCsv(
         `# benchmark_run_at,${new Date().toISOString()}`,
         `# screen_width,${overall.screenWidth}`,
         `# screen_height,${overall.screenHeight}`,
+        `# px_per_degree,${overall.pxPerDegree}`,
         `# total_samples,${overall.totalSamples}`,
         `# cells_covered,${overall.cellsCovered}/${overall.cellsTotal}`,
         `# mean_error_px,${overall.meanErrorPx.toFixed(2)}`,
         `# median_error_px,${overall.medianErrorPx.toFixed(2)}`,
+        `# mean_error_deg,${overall.meanErrorDeg.toFixed(2)}`,
+        `# median_error_deg,${overall.medianErrorDeg.toFixed(2)}`,
         `# hit_rate_pct,${overall.hitRatePct.toFixed(2)}`,
     ].join('\n');
 

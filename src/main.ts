@@ -30,13 +30,19 @@ const snapStrength = new SnapStrength(120);
 // Dev-mode benchmark. Gated on `import.meta.env.DEV` (true under `npm run
 // dev`, false in production build) OR the `?dev=1` URL flag, so the prompt
 // never appears to end users unless they explicitly opt in.
-const devMode =
-    import.meta.env.DEV ||
-    new URLSearchParams(window.location.search).has('dev');
+const urlParams = new URLSearchParams(window.location.search);
+const devMode = import.meta.env.DEV || urlParams.has('dev');
+// Rough conversion for degree-of-visual-angle readouts. Default 45 px/deg
+// matches a ~14" laptop at arm's length; tune via `?pxperdeg=N` if you
+// know your geometry (e.g. measure 1 cm at viewing distance → divide by
+// tan(1°) ≈ 0.0175 to get px/deg).
+const pxPerDegreeRaw = Number(urlParams.get('pxperdeg'));
+const pxPerDegree = Number.isFinite(pxPerDegreeRaw) && pxPerDegreeRaw > 0 ? pxPerDegreeRaw : 45;
 const benchmark = new Benchmark(gazeController, {
     rows: 8,
     cols: 16,
     dwellMs: 3000,
+    pxPerDegree,
 });
 
 window.onload = function() {

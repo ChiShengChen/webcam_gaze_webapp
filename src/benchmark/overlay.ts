@@ -40,6 +40,10 @@ const CSS = `
     z-index: 10001;
 }
 #benchmark-hud .cell-label b { color: #9cf; }
+#benchmark-hud .cell-state b { padding: 2px 8px; border-radius: 10px; font-size: 11px; letter-spacing: 0.2px; }
+#benchmark-hud .cell-state b.settling { background: #443; color: #fd7; }
+#benchmark-hud .cell-state b.collecting { background: #253; color: #9f9; }
+#benchmark-hud .cell-state b.waiting { background: #422; color: #f99; }
 #benchmark-hud button {
     background: #633; color: #fff; border: 1px solid #844;
     padding: 5px 12px; border-radius: 14px; cursor: pointer; font-size: 12px;
@@ -94,7 +98,8 @@ export function createOverlay(): OverlayHandles {
     hud.innerHTML = `
         <span class="cell-label">Cell <b id="bench-cell-idx">0</b> / <b id="bench-cell-total">0</b></span>
         <span class="cell-coord">row <b id="bench-cell-row">0</b>, col <b id="bench-cell-col">0</b></span>
-        <span class="cell-progress"><b id="bench-dwell">0.0s</b></span>
+        <span class="cell-state"><b id="bench-state">…</b></span>
+        <span class="cell-progress"><b id="bench-dwell">0.0s</b> · <b id="bench-count">0</b> samples</span>
         <button type="button">Abort</button>
     `;
     const abortBtn = hud.querySelector('button')!;
@@ -109,6 +114,12 @@ export function createOverlay(): OverlayHandles {
                 <div>mean error<b id="sum-mean">— px</b></div>
                 <div>median error<b id="sum-median">— px</b></div>
                 <div>hit rate<b id="sum-hit">— %</b></div>
+            </div>
+            <div class="metrics">
+                <div>mean error (deg)<b id="sum-mean-deg">— °</b></div>
+                <div>median error (deg)<b id="sum-median-deg">— °</b></div>
+                <div>samples logged<b id="sum-samples">—</b></div>
+                <div>px / degree<b id="sum-ppd">—</b></div>
             </div>
             <img id="sum-preview" class="preview" alt="gazemap preview" />
             <div class="actions">

@@ -33,10 +33,30 @@ export interface BenchmarkConfig {
     rows: number;
     cols: number;
     dwellMs: number;
+    /** Ignore samples for the first N ms of each cell so the saccade
+     *  into the new target does not pollute the fixation statistics. */
+    warmupMs: number;
+    /** Also drop samples that the I-VT classifier flags as SACCADE —
+     *  the `snapped` stream emits filtered raw gaze during saccades,
+     *  which would otherwise be counted against whichever cell happens
+     *  to be active. */
+    requireFixation: boolean;
+    /** Approximate screen pixels per degree of visual angle, used only
+     *  for the degree readout in the summary. Default is a reasonable
+     *  14-inch laptop at ~55 cm; pass `pxPerDegree` or the URL flag
+     *  `?pxperdeg=N` to override. */
+    pxPerDegree: number;
     /** Cells are ordered row-major (each row left-to-right, top-down). */
 }
 
-const DEFAULT: BenchmarkConfig = { rows: 8, cols: 16, dwellMs: 3000 };
+const DEFAULT: BenchmarkConfig = {
+    rows: 8,
+    cols: 16,
+    dwellMs: 3000,
+    warmupMs: 500,
+    requireFixation: true,
+    pxPerDegree: 45,
+};
 
 export interface BenchmarkResult {
     samples: Sample[];
@@ -56,6 +76,8 @@ export class Benchmark {
     private cellIndex = 0;
     private cellStartMs = 0;
     private lastGaze: { x: number; y: number } | null = null;
+    private lastState: 'FIXATION' | 'SACCADE' = 'SACCADE';
+    private cellSampleCount = 0;
     private screenW = 0;
     private screenH = 0;
     private rafId = 0;
@@ -66,10 +88,18 @@ export class Benchmark {
         this.cfg = { ...DEFAULT, ...cfg };
 
         // Register once. The listener is cheap when !running.
-        gazeController.onSnapped((x, y, _state, t) => {
+        gazeController.onSnapped((x, y, state, t) => {
             if (!this.running) return;
             this.lastGaze = { x, y };
+            this.lastState = state;
+            // Always track gaze so the overlay cursor keeps drawing, but
+            // only log samples once the user has settled (past warm-up) and
+            // the classifier says they are fixating.
+            const inWarmup = (t - this.cellStartMs) < this.cfg.warmupMs;
+            if (inWarmup) return;
+            if (this.cfg.requireFixation && state !== 'FIXATION') return;
             this.recordSample(x, y, t);
+            this.cellSampleCount++;
         });
     }
 
@@ -150,6 +180,20 @@ export class Benchmark {
         hud.querySelector('#bench-cell-col')!.textContent = String(col);
         hud.querySelector('#bench-dwell')!.textContent =
             `${(dwellElapsed / 1000).toFixed(1)}s`;
+        hud.querySelector('#bench-count')!.textContent = String(this.cellSampleCount);
+
+        const stateEl = hud.querySelector<HTMLElement>('#bench-state')!;
+        const inWarmup = dwellElapsed < this.cfg.warmupMs;
+        if (inWarmup) {
+            stateEl.textContent = 'settling';
+            stateEl.className = 'settling';
+        } else if (this.cfg.requireFixation && this.lastState !== 'FIXATION') {
+            stateEl.textContent = 'waiting for fixation';
+            stateEl.className = 'waiting';
+        } else {
+            stateEl.textContent = 'collecting';
+            stateEl.className = 'collecting';
+        }
 
         drawFrame(this.overlay.canvas, {
             rows: this.cfg.rows,
@@ -167,6 +211,7 @@ export class Benchmark {
                 return;
             }
             this.cellStartMs = now;
+            this.cellSampleCount = 0;
         }
 
         this.rafId = requestAnimationFrame(this.loop);
@@ -178,7 +223,8 @@ export class Benchmark {
             this.cfg.rows,
             this.cfg.cols,
             this.screenW,
-            this.screenH
+            this.screenH,
+            this.cfg.pxPerDegree
         );
         const result: BenchmarkResult = {
             samples: this.samples,
@@ -237,6 +283,14 @@ export class Benchmark {
             `${result.overall.medianErrorPx.toFixed(1)} px`;
         o.summary.querySelector('#sum-hit')!.textContent =
             `${result.overall.hitRatePct.toFixed(1)} %`;
+        o.summary.querySelector('#sum-mean-deg')!.textContent =
+            `${result.overall.meanErrorDeg.toFixed(2)} °`;
+        o.summary.querySelector('#sum-median-deg')!.textContent =
+            `${result.overall.medianErrorDeg.toFixed(2)} °`;
+        o.summary.querySelector('#sum-samples')!.textContent =
+            String(result.overall.totalSamples);
+        o.summary.querySelector('#sum-ppd')!.textContent =
+            String(result.overall.pxPerDegree);
 
         const stamp = tsStamp();
         const csvBtn = o.summary.querySelector<HTMLButtonElement>('#sum-download-csv')!;
