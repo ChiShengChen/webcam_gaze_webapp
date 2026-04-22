@@ -3,6 +3,7 @@ import webgazer from 'webgazer';
 import { LabelMode } from './labelMode';
 import { VideoMode } from './videoMode';
 import { BlinkDetector } from './blinkDetector';
+import { BlinkDetectorEAR } from './blinkDetectorEAR';
 import { GazeController } from './control/controller';
 import { computeSnap, SnapStrength } from './control/snapping';
 import { Benchmark } from './benchmark/benchmark';
@@ -16,6 +17,10 @@ let webgazerStarted = false;
 let correctionMode = false;
 let correctionCount = 0;
 const blinkDetector = new BlinkDetector();
+// Parallel EAR-based detector used only when the FaceMesh engine is
+// active. The WebGazer path keeps the pixel-variance detector so legacy
+// behaviour is unchanged.
+const blinkDetectorEAR = new BlinkDetectorEAR();
 
 const CLICKS_PER_DOT = 5;
 
@@ -57,6 +62,64 @@ if (facemeshEngine) {
     facemeshEngine.onGaze((x, y) => {
         gazeController.push(x, y, performance.now());
     });
+}
+
+// FaceMesh mode runs without WebGazer's built-in preview canvas, so we
+// build one ourselves. Shown only in tracker mode; hidden during
+// calibration overlays and in Label/Video modes where the preview would
+// fight for screen real estate with the mode UI.
+let facemeshPreviewEl: HTMLVideoElement | null = null;
+function ensureFacemeshPreview(): HTMLVideoElement {
+    if (facemeshPreviewEl) return facemeshPreviewEl;
+    const v = document.createElement('video');
+    v.id = 'facemesh-preview';
+    v.autoplay = true;
+    v.playsInline = true;
+    v.muted = true;
+    Object.assign(v.style, {
+        position: 'fixed',
+        bottom: '12px',
+        right: '12px',
+        width: '240px',
+        height: '135px',
+        border: '2px solid #333',
+        borderRadius: '6px',
+        zIndex: '500',
+        background: '#000',
+        transform: 'scaleX(-1)', // mirror so "left on screen" matches user's left
+        objectFit: 'cover',
+        display: 'none',
+    });
+    document.body.appendChild(v);
+
+    // Small label on top of the video so the user knows what it is.
+    const label = document.createElement('div');
+    label.textContent = 'facemesh · live';
+    Object.assign(label.style, {
+        position: 'fixed',
+        bottom: '140px',
+        right: '18px',
+        color: '#ccc',
+        fontSize: '10px',
+        fontFamily: 'ui-monospace, monospace',
+        letterSpacing: '0.3px',
+        zIndex: '501',
+        pointerEvents: 'none',
+        background: 'rgba(0,0,0,0.65)',
+        padding: '2px 6px',
+        borderRadius: '4px',
+    });
+    label.id = 'facemesh-preview-label';
+    label.style.display = 'none';
+    document.body.appendChild(label);
+
+    facemeshPreviewEl = v;
+    return v;
+}
+function setFacemeshPreviewVisible(visible: boolean): void {
+    const label = document.getElementById('facemesh-preview-label');
+    if (facemeshPreviewEl) facemeshPreviewEl.style.display = visible ? 'block' : 'none';
+    if (label) label.style.display = visible ? 'block' : 'none';
 }
 
 function recordCalibrationSample(x: number, y: number): boolean {
@@ -134,15 +197,17 @@ window.onload = function() {
                 heatmapContainer.style.display = 'block';
                 correctionControls.style.display = 'flex';
                 blinkLogContainer.style.display = 'flex';
-                if (!useFaceMesh) webgazer.showVideoPreview(true);
+                if (useFaceMesh) setFacemeshPreviewVisible(true);
+                else webgazer.showVideoPreview(true);
             }
         } else {
             gazeDot.style.display = 'none';
             heatmapContainer.style.display = 'none';
             correctionControls.style.display = 'none';
             blinkLogContainer.style.display = 'none';
-            if (webgazerStarted && !useFaceMesh) {
-                webgazer.showVideoPreview(false);
+            if (webgazerStarted) {
+                if (useFaceMesh) setFacemeshPreviewVisible(false);
+                else webgazer.showVideoPreview(false);
             }
         }
     }
@@ -352,8 +417,11 @@ window.onload = function() {
         URL.revokeObjectURL(url);
     };
 
-    // Register blink handler
-    blinkDetector.onBlink((gazeX, gazeY) => {
+    // Register blink handler on both detectors — only one of them runs at
+    // a time (start/stop are branched on engine), but keeping the handler
+    // wired to both avoids an engine-switch code path in the middle of
+    // the UI logic.
+    const onBlink = (gazeX: number, gazeY: number) => {
         if (currentMode === 'tracker') {
             showBlinkMarker(gazeX, gazeY);
             addBlinkToLog(gazeX, gazeY);
@@ -362,7 +430,19 @@ window.onload = function() {
         } else if (currentMode === 'video' && videoMode) {
             // Could be used for video bookmarking in the future
         }
-    });
+    };
+    blinkDetector.onBlink(onBlink);
+    blinkDetectorEAR.onBlink(onBlink);
+
+    // FaceMesh engine pipes EAR into the EAR-based detector. Fires for
+    // every landmark result, regardless of calibration state, so blinks
+    // work even before the KRR is fitted.
+    if (facemeshEngine) {
+        facemeshEngine.onFrame((features) => {
+            // Feature vector indices 4, 5 are left/right EAR per features.ts.
+            blinkDetectorEAR.processEAR(features.vector[4], features.vector[5]);
+        });
+    }
 
     // Raw stream → heatmap (higher temporal fidelity, no fixation snap).
     gazeController.onRaw((x, y) => {
@@ -375,6 +455,7 @@ window.onload = function() {
     // toward any nearby [data-gaze-target=true] element.
     gazeController.onSnapped((x, y, _state, nowMs) => {
         blinkDetector.updateGaze(x, y);
+        blinkDetectorEAR.updateGaze(x, y);
 
         const candidate = computeSnap(x, y, 1.0);
         const strength = snapStrength.update(candidate.target, nowMs);
@@ -401,7 +482,12 @@ window.onload = function() {
     function startGazeListener() {
         gazeDot.style.display = 'block';
         webgazerStarted = true;
-        blinkDetector.start();
+        if (useFaceMesh) {
+            blinkDetectorEAR.start();
+            setFacemeshPreviewVisible(currentMode === 'tracker');
+        } else {
+            blinkDetector.start();
+        }
         gazeController.reset();
 
         // FaceMesh engine already routes gaze through the controller; we
@@ -652,6 +738,12 @@ window.onload = function() {
             initHeatmap();
             if (useFaceMesh && facemeshEngine) {
                 await facemeshEngine.begin();
+                // Wire the engine's camera stream into our preview tile so
+                // the user has visual confirmation the tracker sees them.
+                // Hidden during calibration overlays; shown when tracker
+                // mode is active.
+                const preview = ensureFacemeshPreview();
+                facemeshEngine.attachPreview(preview);
                 if (!useSmoothPursuit) {
                     alert(
                         'FaceMesh engine ready!\n\n' +

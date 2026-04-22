@@ -13,7 +13,7 @@
  */
 
 import { FaceMeshEngine } from './landmarks';
-import { extractFeatures } from './features';
+import { extractFeatures, type Features } from './features';
 import { GazeKRR } from './regression';
 
 export interface EngineConfig {
@@ -35,6 +35,7 @@ const DEFAULT: EngineConfig = {
 const BLINK_EAR_THRESHOLD = 0.15;
 
 type GazeListener = (x: number, y: number) => void;
+type FrameListener = (features: Features, timestamp: number) => void;
 
 interface CalibSample {
     features: number[];
@@ -53,6 +54,7 @@ export class FaceMeshGazeEngine {
     private lastFeatures: number[] | null = null;
     private calibSamples: CalibSample[] = [];
     private gazeListeners: GazeListener[] = [];
+    private frameListeners: FrameListener[] = [];
     private loopHandle: number | null = null;
 
     constructor(cfg: Partial<EngineConfig> = {}) {
@@ -62,6 +64,7 @@ export class FaceMeshGazeEngine {
             const feats = extractFeatures(r);
             if (!feats) return;
             this.lastFeatures = feats.vector;
+            for (const l of this.frameListeners) l(feats, r.timestamp);
             if (this.krr.isFitted) {
                 const p = this.krr.predict(feats.vector);
                 for (const l of this.gazeListeners) l(p.x, p.y);
@@ -135,6 +138,14 @@ export class FaceMeshGazeEngine {
      *  after the KRR is fitted. */
     onGaze(cb: GazeListener): void {
         this.gazeListeners.push(cb);
+    }
+
+    /** Register a per-frame features listener. Fires for every FaceMesh
+     *  result regardless of calibration state — useful for blink
+     *  detection (EAR is ready long before the KRR is fitted) and for
+     *  quality gates during calibration. */
+    onFrame(cb: FrameListener): void {
+        this.frameListeners.push(cb);
     }
 
     /** Attach the live camera stream to an external preview element.
