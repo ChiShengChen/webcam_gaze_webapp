@@ -267,6 +267,57 @@ The analysis export generates 4 CSV files:
 | `mean_saccade_amplitude` | Average saccade distance |
 | `aoi_sequence` | Sequence of AOI visits (e.g., "A → B → A → C") |
 
+## Modes & URL Flags
+
+The defaults (`http://localhost:5173/`) keep the legacy WebGazer + 9-dot behaviour so nothing breaks. The v2 stack (MediaPipe FaceMesh + iris + kernel ridge regression + smooth-pursuit calibration + positioning coach) is opt-in via query-string flags, which also lets you A/B compare any combination.
+
+### Gaze engine — `?engine=`
+
+| Value | Pipeline |
+|---|---|
+| *(default)* | **WebGazer** — TF.js FaceMesh + raw eye-pixel patches + linear ridge regression. |
+| `facemesh` | **v2 engine** — MediaPipe FaceMesh (478 landmarks incl. 10 iris pts) + 13-dim hand-crafted feature vector + kernel ridge regression per user. |
+
+### Calibration — `?calib=`
+
+| Value | Flow |
+|---|---|
+| *(default for WebGazer)* | **9-dot × 5-click** = 45 samples. |
+| *(default for FaceMesh)* | **Smooth-pursuit** — 18 s following a moving Lissajous dot with your eyes only, no clicks. ~500 samples, the density KRR needs to model the non-linear eye-to-screen map. Blinks auto-rejected (EAR < 0.15). |
+| `9point` | Force 9-dot for whichever engine is active. |
+| `pursuit` | Force smooth-pursuit for whichever engine is active. |
+
+### Positioning coach — `?coach=`
+
+| Value | Behaviour |
+|---|---|
+| *(default for FaceMesh)* | **On.** Pre-calibration quality gate: face centering, distance (from iris diameter), head tilt (roll/yaw/pitch), lighting (mean luminance + left/right symmetry). Auto-proceeds after all four stay green for 1.5 s; "Start anyway" bypasses. |
+| `0` | Skip the coach — useful when running the same user through A/B comparisons and you don't want the gate to stall. |
+
+WebGazer mode never shows the coach (it doesn't expose the landmarks the coach reads).
+
+### Dev-mode benchmark — `?dev=`
+
+Automatically on under `vite dev`. In production builds, append `?dev=1` to surface the "Run accuracy benchmark?" prompt after calibration completes. The benchmark is a 16×8 Z-pattern sweep (3 s dwell per cell, ≈ 6.4 min) that auto-saves CSV + gazemap PNG into `gaze_result/` under a mode-tagged filename.
+
+### Visual-angle readout — `?pxperdeg=N`
+
+Default `45` (≈ 14" laptop at arm's length). Tune to your geometry so the benchmark summary's degree readout matches your physical display — measure 1 cm on-screen at your viewing distance and divide by `tan(1°) ≈ 0.0175` to get your actual px/deg.
+
+### Recommended benchmark matrix
+
+Runs end up in `gaze_result/benchmark_<mode>_<timestamp>.csv` + `gazemap_<mode>_<timestamp>.png`, so you can re-run any row as often as you like without overwriting anything.
+
+| URL | Engine | Calibration | Coach | Intended use |
+|---|---|---|---|---|
+| `/` | WebGazer | 9-dot | — | **Legacy baseline** |
+| `/?calib=pursuit` | WebGazer | Smooth-pursuit | — | A/B: does more samples help WebGazer's ridge? |
+| `/?engine=facemesh&calib=9point` | FaceMesh | 9-dot | on | A/B: does iris input alone help vs WebGazer? |
+| `/?engine=facemesh` | FaceMesh | Smooth-pursuit | on | **Full v2** — the one we'd actually ship |
+| `/?engine=facemesh&coach=0` | FaceMesh | Smooth-pursuit | off | v2 without the positioning gate |
+
+The 2×2 of engine × calibration decomposes the v2 gain: going from row 1 to row 2 isolates the calibration-density contribution, row 1 to row 3 isolates the iris-feature contribution, and row 1 to row 4 is the stacked improvement plus the non-linear KRR head.
+
 ## Tips for Better Accuracy
 
 - Ensure good lighting on your face
