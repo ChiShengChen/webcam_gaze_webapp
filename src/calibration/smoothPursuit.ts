@@ -92,10 +92,23 @@ const CSS = `
     z-index: 9502; pointer-events: none;
 }
 #sp-instruct {
-    position: fixed; top: 30%; left: 50%; transform: translateX(-50%);
-    color: #ddd; font-size: 15px; font-family: system-ui, sans-serif;
+    position: fixed; top: 22%; left: 50%; transform: translateX(-50%);
+    color: #fff; font-size: 18px; font-family: system-ui, sans-serif;
     text-align: center; z-index: 9502; pointer-events: none;
-    max-width: 520px; line-height: 1.45;
+    max-width: 640px; line-height: 1.5;
+    background: rgba(0, 0, 0, 0.72); padding: 18px 26px; border-radius: 12px;
+}
+#sp-instruct b { color: #ffd700; font-weight: 600; }
+#sp-instruct .sub {
+    display: block; margin-top: 8px;
+    font-size: 13px; color: #bbb; line-height: 1.5;
+}
+#sp-reminder {
+    position: fixed; top: 70px; left: 50%; transform: translateX(-50%);
+    color: #ffd700; font-size: 13px; font-family: system-ui, sans-serif;
+    z-index: 9502; pointer-events: none; letter-spacing: 0.3px;
+    background: rgba(0, 0, 0, 0.72); padding: 6px 14px; border-radius: 14px;
+    display: none;
 }
 `;
 
@@ -124,6 +137,7 @@ export class SmoothPursuit {
     private hud: HTMLDivElement | null = null;
     private countdownEl: HTMLDivElement | null = null;
     private instructEl: HTMLDivElement | null = null;
+    private reminderEl: HTMLDivElement | null = null;
 
     constructor(onSample: SampleFn, cfg: Partial<SmoothPursuitConfig> = {}) {
         this.cfg = { ...DEFAULT, ...cfg };
@@ -215,13 +229,18 @@ export class SmoothPursuit {
             this.countdownEl.style.display = 'block';
         }
         if (this.instructEl) this.instructEl.style.display = 'block';
-        this.drawTarget(window.innerWidth / 2, window.innerHeight / 2, 'dim');
+        if (this.reminderEl) this.reminderEl.style.display = 'none';
+        // Show the dot exactly where pursuit will begin so there's no
+        // disorienting teleport at t=0.
+        const start = this.targetAt(0);
+        this.drawTarget(start.x, start.y, 'dim');
         this.updateHud('get ready', 'counting');
     }
 
     private renderPursuit(tRunMs: number): void {
         if (this.countdownEl) this.countdownEl.style.display = 'none';
         if (this.instructEl) this.instructEl.style.display = 'none';
+        if (this.reminderEl) this.reminderEl.style.display = 'block';
         const { x, y } = this.targetAt(tRunMs);
         this.drawTarget(x, y, 'active');
         this.updateHud('tracking', 'tracking');
@@ -300,9 +319,18 @@ export class SmoothPursuit {
 
         const instruct = document.createElement('div');
         instruct.id = 'sp-instruct';
-        instruct.textContent =
-            'Follow the yellow dot with your eyes only. Keep your head still. ' +
-            'A short calibration warm-up starts now.';
+        const durationSec = (this.cfg.durationMs / 1000).toFixed(0);
+        instruct.innerHTML =
+            `<b>用眼睛跟著黃點 · Follow the yellow dot with your eyes</b>` +
+            `<span class="sub">` +
+            `• 只動眼睛，<b>頭不要轉</b> · eyes only, keep head still<br>` +
+            `• 不用點擊，也不用操作 · no clicks, just watch<br>` +
+            `• 共 ${durationSec} 秒，眨眼會自動跳過` +
+            `</span>`;
+
+        const reminder = document.createElement('div');
+        reminder.id = 'sp-reminder';
+        reminder.textContent = '眼睛跟黃點 · 頭不要動';
 
         const countdown = document.createElement('div');
         countdown.id = 'sp-countdown';
@@ -311,12 +339,14 @@ export class SmoothPursuit {
         document.body.appendChild(root);
         document.body.appendChild(hud);
         document.body.appendChild(instruct);
+        document.body.appendChild(reminder);
         document.body.appendChild(countdown);
 
         this.rootEl = root;
         this.canvas = canvas;
         this.hud = hud;
         this.instructEl = instruct;
+        this.reminderEl = reminder;
         this.countdownEl = countdown;
     }
 
@@ -324,8 +354,9 @@ export class SmoothPursuit {
         this.rootEl?.remove();
         this.hud?.remove();
         this.instructEl?.remove();
+        this.reminderEl?.remove();
         this.countdownEl?.remove();
         this.rootEl = this.canvas = null;
-        this.hud = this.countdownEl = this.instructEl = null;
+        this.hud = this.countdownEl = this.instructEl = this.reminderEl = null;
     }
 }
