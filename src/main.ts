@@ -3,6 +3,8 @@ import webgazer from 'webgazer';
 import { LabelMode } from './labelMode';
 import { VideoMode } from './videoMode';
 import { BlinkDetector } from './blinkDetector';
+import { GazeController } from './control/controller';
+import { computeSnap, SnapStrength } from './control/snapping';
 
 let currentMode: 'tracker' | 'label' | 'video' = 'tracker';
 let labelMode: LabelMode | null = null;
@@ -12,21 +14,17 @@ let correctionMode = false;
 let correctionCount = 0;
 const blinkDetector = new BlinkDetector();
 
-const gazeHistory: { x: number; y: number }[] = [];
-const SMOOTHING_FRAMES = 5;
 const CLICKS_PER_DOT = 5;
 
-function smoothGaze(rawX: number, rawY: number): { x: number; y: number } {
-    gazeHistory.push({ x: rawX, y: rawY });
-    if (gazeHistory.length > SMOOTHING_FRAMES) {
-        gazeHistory.shift();
-    }
-    
-    const avgX = gazeHistory.reduce((sum, p) => sum + p.x, 0) / gazeHistory.length;
-    const avgY = gazeHistory.reduce((sum, p) => sum + p.y, 0) / gazeHistory.length;
-    
-    return { x: avgX, y: avgY };
-}
+// One-Euro + I-VT + dwell-click pipeline. Replaces the old 5-frame
+// moving average: OneEuro is strictly better on gaze (adapts cutoff to
+// instantaneous speed), and the controller exposes raw/snapped/dwell_click
+// streams so each consumer can pick what fits (heatmap wants raw, cursor
+// wants snapped, dwell-click wires gaze targets to synthetic events).
+const gazeController = new GazeController({
+    oneEuro: { minCutoff: 1.0, beta: 0.007 },
+});
+const snapStrength = new SnapStrength(120);
 
 window.onload = function() {
     // Mode toggle elements
@@ -313,37 +311,54 @@ window.onload = function() {
         }
     });
 
+    // Raw stream → heatmap (higher temporal fidelity, no fixation snap).
+    gazeController.onRaw((x, y) => {
+        if (currentMode === 'tracker') updateHeatmap(x, y);
+    });
+
+    // Snapped stream → visible cursor + mode-specific gaze position.
+    // During fixations the centroid replaces raw filtered output, which
+    // cuts jitter on small UI targets. Magnetic snap pulls the cursor
+    // toward any nearby [data-gaze-target=true] element.
+    gazeController.onSnapped((x, y, _state, nowMs) => {
+        blinkDetector.updateGaze(x, y);
+
+        const candidate = computeSnap(x, y, 1.0);
+        const strength = snapStrength.update(candidate.target, nowMs);
+        const px = x + (candidate.x - x) * strength;
+        const py = y + (candidate.y - y) * strength;
+
+        if (currentMode === 'tracker') {
+            gazeDot.style.left = `${px}px`;
+            gazeDot.style.top = `${py}px`;
+        } else if (currentMode === 'label' && labelMode) {
+            labelMode.updateGazePosition(px, py);
+        } else if (currentMode === 'video' && videoMode) {
+            videoMode.updateGazePosition(px, py);
+        }
+    });
+
+    // Dwell-click → synthetic 'gazeclick' CustomEvent on the target.
+    // No consumers today (Control Mode lands in a later step); nothing
+    // else listens for 'gazeclick', so firing is safe.
+    gazeController.onDwellClick((ev) => {
+        ev.target.dispatchEvent(new CustomEvent('gazeclick', { bubbles: true, detail: ev }));
+    });
+
     function startGazeListener() {
         gazeDot.style.display = 'block';
         webgazerStarted = true;
         blinkDetector.start();
+        gazeController.reset();
 
         webgazer.setGazeListener((data, _elapsedTime) => {
-            if (data == null) {
-                return;
-            }
-
-            const smoothed = smoothGaze(data.x, data.y);
-            const x = smoothed.x;
-            const y = smoothed.y;
-
-            // Feed blink detector with gaze position + eye patches
-            blinkDetector.updateGaze(x, y);
+            if (data == null) return;
+            gazeController.push(data.x, data.y, performance.now());
             if (data.eyeFeatures) {
                 blinkDetector.processEyePatches(
                     data.eyeFeatures.left?.patch ?? null,
                     data.eyeFeatures.right?.patch ?? null
                 );
-            }
-
-            if (currentMode === 'tracker') {
-                gazeDot.style.left = `${x}px`;
-                gazeDot.style.top = `${y}px`;
-                updateHeatmap(x, y);
-            } else if (currentMode === 'label' && labelMode) {
-                labelMode.updateGazePosition(x, y);
-            } else if (currentMode === 'video' && videoMode) {
-                videoMode.updateGazePosition(x, y);
             }
         });
     }
@@ -457,7 +472,7 @@ window.onload = function() {
                 if (reset) {
                     await webgazer.clearData();
                 }
-                gazeHistory.length = 0;
+                gazeController.reset();
                 initHeatmap();
                 startCalibration();
                 return;
