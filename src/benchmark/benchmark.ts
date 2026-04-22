@@ -1,0 +1,257 @@
+/**
+ * Benchmark state machine — 16×8 Z-pattern sweep, 3 s dwell per cell.
+ *
+ * Subscribes to the GazeController's snapped stream (what the user actually
+ * sees) and logs every sample during a cell's dwell window against the
+ * target centre. When all cells are done, emits a result the caller can
+ * feed into export.ts (CSV + gazemap PNG).
+ *
+ * Dev-mode only — see main.ts for the gating. The overlay hides the rest
+ * of the UI chrome so the user isn't distracted by buttons during the run.
+ */
+
+import type { GazeController } from '../control/controller';
+import {
+    createOverlay,
+    drawFrame,
+    sizeCanvas,
+    type OverlayHandles,
+} from './overlay';
+import {
+    buildCsv,
+    computeCellStats,
+    downloadBlob,
+    downloadCanvasPng,
+    renderGazemap,
+    tsStamp,
+    type CellStats,
+    type OverallStats,
+    type Sample,
+} from './export';
+
+export interface BenchmarkConfig {
+    rows: number;
+    cols: number;
+    dwellMs: number;
+    /** Cells are ordered row-major (each row left-to-right, top-down). */
+}
+
+const DEFAULT: BenchmarkConfig = { rows: 8, cols: 16, dwellMs: 3000 };
+
+export interface BenchmarkResult {
+    samples: Sample[];
+    cells: CellStats[];
+    overall: OverallStats;
+    rows: number;
+    cols: number;
+    screenWidth: number;
+    screenHeight: number;
+}
+
+export class Benchmark {
+    private readonly cfg: BenchmarkConfig;
+    private overlay: OverlayHandles | null = null;
+    private running = false;
+    private samples: Sample[] = [];
+    private cellIndex = 0;
+    private cellStartMs = 0;
+    private lastGaze: { x: number; y: number } | null = null;
+    private screenW = 0;
+    private screenH = 0;
+    private rafId = 0;
+    private resizeHandler: (() => void) | null = null;
+    private onCompleteCb: ((r: BenchmarkResult | null) => void) | null = null;
+
+    constructor(gazeController: GazeController, cfg: Partial<BenchmarkConfig> = {}) {
+        this.cfg = { ...DEFAULT, ...cfg };
+
+        // Register once. The listener is cheap when !running.
+        gazeController.onSnapped((x, y, _state, t) => {
+            if (!this.running) return;
+            this.lastGaze = { x, y };
+            this.recordSample(x, y, t);
+        });
+    }
+
+    get isRunning(): boolean {
+        return this.running;
+    }
+
+    /** Start the benchmark. `onDone` fires on completion (null on abort). */
+    start(onDone: (result: BenchmarkResult | null) => void): void {
+        if (this.running) return;
+        this.onCompleteCb = onDone;
+
+        this.screenW = window.innerWidth;
+        this.screenH = window.innerHeight;
+        this.samples = [];
+        this.cellIndex = 0;
+        this.cellStartMs = performance.now();
+
+        this.overlay = createOverlay();
+        this.overlay.root.classList.add('active');
+        sizeCanvas(this.overlay.canvas);
+        this.overlay.abortBtn.addEventListener('click', () => this.abort());
+
+        this.resizeHandler = () => {
+            if (!this.overlay) return;
+            sizeCanvas(this.overlay.canvas);
+            this.screenW = window.innerWidth;
+            this.screenH = window.innerHeight;
+        };
+        window.addEventListener('resize', this.resizeHandler);
+
+        this.running = true;
+        this.loop();
+    }
+
+    abort(): void {
+        if (!this.running) return;
+        this.stop(null);
+    }
+
+    private recordSample(x: number, y: number, timestampMs: number): void {
+        const row = Math.floor(this.cellIndex / this.cfg.cols);
+        const col = this.cellIndex % this.cfg.cols;
+        const cellW = this.screenW / this.cfg.cols;
+        const cellH = this.screenH / this.cfg.rows;
+        const tx = (col + 0.5) * cellW;
+        const ty = (row + 0.5) * cellH;
+        const error = Math.hypot(x - tx, y - ty);
+
+        this.samples.push({
+            timestampMs,
+            cellIndex: this.cellIndex,
+            cellRow: row,
+            cellCol: col,
+            targetX: tx,
+            targetY: ty,
+            gazeX: x,
+            gazeY: y,
+            errorPx: error,
+        });
+    }
+
+    private loop = (): void => {
+        if (!this.running || !this.overlay) return;
+
+        const now = performance.now();
+        const dwellElapsed = now - this.cellStartMs;
+        const progress = Math.min(1, dwellElapsed / this.cfg.dwellMs);
+
+        const row = Math.floor(this.cellIndex / this.cfg.cols);
+        const col = this.cellIndex % this.cfg.cols;
+
+        // HUD text.
+        const hud = this.overlay.cellLabel.parentElement!;
+        hud.querySelector('#bench-cell-idx')!.textContent = String(this.cellIndex + 1);
+        hud.querySelector('#bench-cell-total')!.textContent = String(this.cfg.rows * this.cfg.cols);
+        hud.querySelector('#bench-cell-row')!.textContent = String(row);
+        hud.querySelector('#bench-cell-col')!.textContent = String(col);
+        hud.querySelector('#bench-dwell')!.textContent =
+            `${(dwellElapsed / 1000).toFixed(1)}s`;
+
+        drawFrame(this.overlay.canvas, {
+            rows: this.cfg.rows,
+            cols: this.cfg.cols,
+            activeRow: row,
+            activeCol: col,
+            dwellProgress: progress,
+            recentGaze: this.lastGaze,
+        });
+
+        if (dwellElapsed >= this.cfg.dwellMs) {
+            this.cellIndex++;
+            if (this.cellIndex >= this.cfg.rows * this.cfg.cols) {
+                this.finish();
+                return;
+            }
+            this.cellStartMs = now;
+        }
+
+        this.rafId = requestAnimationFrame(this.loop);
+    };
+
+    private finish(): void {
+        const { cells, overall } = computeCellStats(
+            this.samples,
+            this.cfg.rows,
+            this.cfg.cols,
+            this.screenW,
+            this.screenH
+        );
+        const result: BenchmarkResult = {
+            samples: this.samples,
+            cells,
+            overall,
+            rows: this.cfg.rows,
+            cols: this.cfg.cols,
+            screenWidth: this.screenW,
+            screenHeight: this.screenH,
+        };
+        this.showSummary(result);
+        this.stop(result);
+    }
+
+    private stop(result: BenchmarkResult | null): void {
+        this.running = false;
+        if (this.rafId) cancelAnimationFrame(this.rafId);
+        if (this.resizeHandler) window.removeEventListener('resize', this.resizeHandler);
+        this.resizeHandler = null;
+
+        // Keep overlay alive if we have a summary to show; destroy otherwise.
+        if (!result && this.overlay) {
+            this.overlay.destroy();
+            this.overlay = null;
+        }
+
+        const cb = this.onCompleteCb;
+        this.onCompleteCb = null;
+        cb?.(result);
+    }
+
+    private showSummary(result: BenchmarkResult): void {
+        if (!this.overlay) return;
+        const o = this.overlay;
+
+        // Hide the live overlay; show the summary panel.
+        o.root.classList.remove('active');
+        o.summary.style.display = 'flex';
+
+        const gazemapCanvas = renderGazemap(
+            result.samples,
+            result.cells,
+            result.rows,
+            result.cols,
+            result.screenWidth,
+            result.screenHeight
+        );
+        const img = o.summary.querySelector<HTMLImageElement>('#sum-preview')!;
+        img.src = gazemapCanvas.toDataURL('image/png');
+
+        o.summary.querySelector('#sum-cells')!.textContent =
+            `${result.overall.cellsCovered} / ${result.overall.cellsTotal}`;
+        o.summary.querySelector('#sum-mean')!.textContent =
+            `${result.overall.meanErrorPx.toFixed(1)} px`;
+        o.summary.querySelector('#sum-median')!.textContent =
+            `${result.overall.medianErrorPx.toFixed(1)} px`;
+        o.summary.querySelector('#sum-hit')!.textContent =
+            `${result.overall.hitRatePct.toFixed(1)} %`;
+
+        const stamp = tsStamp();
+        const csvBtn = o.summary.querySelector<HTMLButtonElement>('#sum-download-csv')!;
+        csvBtn.onclick = () => {
+            const csv = buildCsv(result.samples, result.cells, result.overall);
+            downloadBlob(`benchmark_${stamp}.csv`, new Blob([csv], { type: 'text/csv' }));
+        };
+        const pngBtn = o.summary.querySelector<HTMLButtonElement>('#sum-download-png')!;
+        pngBtn.onclick = () => {
+            downloadCanvasPng(`gazemap_${stamp}.png`, gazemapCanvas);
+        };
+        const closeBtn = o.summary.querySelector<HTMLButtonElement>('#sum-close')!;
+        closeBtn.onclick = () => {
+            o.destroy();
+            this.overlay = null;
+        };
+    }
+}

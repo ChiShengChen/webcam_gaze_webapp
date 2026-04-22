@@ -5,6 +5,7 @@ import { VideoMode } from './videoMode';
 import { BlinkDetector } from './blinkDetector';
 import { GazeController } from './control/controller';
 import { computeSnap, SnapStrength } from './control/snapping';
+import { Benchmark } from './benchmark/benchmark';
 
 let currentMode: 'tracker' | 'label' | 'video' = 'tracker';
 let labelMode: LabelMode | null = null;
@@ -25,6 +26,18 @@ const gazeController = new GazeController({
     oneEuro: { minCutoff: 1.0, beta: 0.007 },
 });
 const snapStrength = new SnapStrength(120);
+
+// Dev-mode benchmark. Gated on `import.meta.env.DEV` (true under `npm run
+// dev`, false in production build) OR the `?dev=1` URL flag, so the prompt
+// never appears to end users unless they explicitly opt in.
+const devMode =
+    import.meta.env.DEV ||
+    new URLSearchParams(window.location.search).has('dev');
+const benchmark = new Benchmark(gazeController, {
+    rows: 8,
+    cols: 16,
+    dwellMs: 3000,
+});
 
 window.onload = function() {
     // Mode toggle elements
@@ -416,10 +429,45 @@ window.onload = function() {
                         blinkLogContainer.style.display = 'flex';
                         alert(`Calibration complete! (${calibrationClicks} training samples collected)\n\nThe red dot will now follow your gaze.\n\nTip: Turn on "Click to Correct" at the bottom of the screen — click where you're actually looking to improve accuracy on the fly.`);
                         startGazeListener();
+                        maybeOfferBenchmark();
                     }
                 }
             };
         });
+    }
+
+    // ==================== Dev-mode Benchmark ====================
+    // 16-col × 8-row Z-pattern sweep, 3 s dwell per cell. Emits a CSV
+    // (per-sample + per-cell summary + run metadata) plus a gazemap PNG.
+    // Only offered when `import.meta.env.DEV` is true or `?dev=1` is set.
+    function maybeOfferBenchmark() {
+        if (!devMode || benchmark.isRunning) return;
+        // Defer past the calibration-complete alert so the user actually sees
+        // the prompt instead of it queuing behind the alert.
+        setTimeout(() => {
+            const ok = confirm(
+                'Dev mode detected.\n\n' +
+                'Run accuracy benchmark? (16×8 grid, 3 s per cell ≈ 6.4 min)\n\n' +
+                'You will be asked to gaze at each highlighted cell in Z-order,' +
+                ' left-to-right, top-to-bottom. You can abort at any time.'
+            );
+            if (!ok) return;
+            // Hide heatmap + mode toggle + correction controls so the overlay
+            // is unambiguous; the benchmark overlay itself covers everything.
+            heatmapContainer.style.display = 'none';
+            modeToggle.style.display = 'none';
+            correctionControls.style.display = 'none';
+            blinkLogContainer.style.display = 'none';
+            gazeDot.style.display = 'none';
+            benchmark.start((_result) => {
+                // Restore chrome regardless of complete vs abort.
+                heatmapContainer.style.display = 'block';
+                modeToggle.style.display = 'flex';
+                correctionControls.style.display = 'flex';
+                blinkLogContainer.style.display = 'flex';
+                gazeDot.style.display = 'block';
+            });
+        }, 200);
     }
 
     // ==================== Click-to-Correct Mode ====================
