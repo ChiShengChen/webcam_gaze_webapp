@@ -329,3 +329,37 @@ export function downloadCanvasPng(filename: string, canvas: HTMLCanvasElement): 
 export function tsStamp(): string {
     return new Date().toISOString().slice(0, 19).replace(/[:T]/g, '-');
 }
+
+/**
+ * POST a blob to the dev-mode save endpoint (vite.config.ts middleware)
+ * so the file lands in `gaze_result/` automatically with a mode-tagged
+ * filename. Returns `{ok: false}` silently in production builds (the
+ * endpoint simply doesn't exist) so callers can still fall back to the
+ * manual download buttons.
+ */
+export async function autoSaveToServer(
+    filename: string,
+    blob: Blob
+): Promise<{ ok: boolean; path?: string; error?: string }> {
+    try {
+        const res = await fetch(
+            `/__benchmark/save?filename=${encodeURIComponent(filename)}`,
+            {
+                method: 'POST',
+                headers: { 'Content-Type': blob.type || 'application/octet-stream' },
+                body: blob,
+            }
+        );
+        if (!res.ok) {
+            return { ok: false, error: `HTTP ${res.status}` };
+        }
+        const j = (await res.json().catch(() => ({}))) as { path?: string };
+        return { ok: true, path: j.path };
+    } catch (err) {
+        return { ok: false, error: String(err) };
+    }
+}
+
+export function canvasToPngBlob(canvas: HTMLCanvasElement): Promise<Blob | null> {
+    return new Promise(resolve => canvas.toBlob(b => resolve(b), 'image/png'));
+}

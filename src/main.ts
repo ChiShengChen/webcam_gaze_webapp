@@ -141,11 +141,28 @@ function recordCalibrationSample(x: number, y: number): boolean {
 // tan(1°) ≈ 0.0175 to get px/deg).
 const pxPerDegreeRaw = Number(urlParams.get('pxperdeg'));
 const pxPerDegree = Number.isFinite(pxPerDegreeRaw) && pxPerDegreeRaw > 0 ? pxPerDegreeRaw : 45;
+
+// Mode-tagged label — auto-save filenames embed this so multiple runs
+// in the same dev session land in distinct files in gaze_result/.
+// URL layout is deliberately flat so the label is obvious:
+//   / or ?engine=webgazer           -> webgazer_9point
+//   /?calib=pursuit                 -> webgazer_pursuit
+//   /?engine=facemesh&calib=9point  -> facemesh_9point
+//   /?engine=facemesh (default)     -> facemesh_pursuit
+//   ... with -nocoach suffix when the coach is bypassed.
+const runLabel = (() => {
+    const engine = useFaceMesh ? 'facemesh' : 'webgazer';
+    const calib = useSmoothPursuit ? 'pursuit' : '9point';
+    const coachTag = (useFaceMesh && !useCoach) ? '-nocoach' : '';
+    return `${engine}_${calib}${coachTag}`;
+})();
+
 const benchmark = new Benchmark(gazeController, {
     rows: 8,
     cols: 16,
     dwellMs: 3000,
     pxPerDegree,
+    runLabel,
 });
 
 window.onload = function() {

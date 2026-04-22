@@ -72,6 +72,12 @@ const CSS = `
     background: #2a5; color: #fff; border: none; padding: 8px 16px;
     border-radius: 6px; cursor: pointer; font-size: 13px;
 }
+#benchmark-summary .save-status {
+    font-family: ui-monospace, monospace; font-size: 12px;
+    color: #aaa; padding: 6px 10px;
+    background: #1e1e26; border-radius: 6px;
+    text-align: center;
+}
 #benchmark-summary .actions button.secondary { background: #444; }
 #benchmark-summary .actions button:hover { filter: brightness(1.15); }
 `;
@@ -122,6 +128,7 @@ export function createOverlay(): OverlayHandles {
                 <div>px / degree<b id="sum-ppd">—</b></div>
             </div>
             <img id="sum-preview" class="preview" alt="gazemap preview" />
+            <div id="sum-save-status" class="save-status">saving…</div>
             <div class="actions">
                 <button id="sum-download-csv">Download CSV</button>
                 <button id="sum-download-png">Download gazemap PNG</button>

@@ -18,7 +18,9 @@ import {
     type OverlayHandles,
 } from './overlay';
 import {
+    autoSaveToServer,
     buildCsv,
+    canvasToPngBlob,
     computeCellStats,
     downloadBlob,
     downloadCanvasPng,
@@ -46,6 +48,11 @@ export interface BenchmarkConfig {
      *  14-inch laptop at ~55 cm; pass `pxPerDegree` or the URL flag
      *  `?pxperdeg=N` to override. */
     pxPerDegree: number;
+    /** Short identifier for this run, embedded in auto-save filenames
+     *  so multiple engine/calibration modes produced in the same dev
+     *  session don't overwrite one another. Typically encoded from the
+     *  URL flags (e.g. "facemesh_pursuit"). */
+    runLabel: string;
     /** Cells are ordered row-major (each row left-to-right, top-down). */
 }
 
@@ -56,6 +63,7 @@ const DEFAULT: BenchmarkConfig = {
     warmupMs: 500,
     requireFixation: true,
     pxPerDegree: 45,
+    runLabel: 'run',
 };
 
 export interface BenchmarkResult {
@@ -293,19 +301,51 @@ export class Benchmark {
             String(result.overall.pxPerDegree);
 
         const stamp = tsStamp();
+        const csv = buildCsv(result.samples, result.cells, result.overall);
+        const csvBlob = new Blob([csv], { type: 'text/csv' });
+        const csvName = `benchmark_${this.cfg.runLabel}_${stamp}.csv`;
+        const pngName = `gazemap_${this.cfg.runLabel}_${stamp}.png`;
         const csvBtn = o.summary.querySelector<HTMLButtonElement>('#sum-download-csv')!;
-        csvBtn.onclick = () => {
-            const csv = buildCsv(result.samples, result.cells, result.overall);
-            downloadBlob(`benchmark_${stamp}.csv`, new Blob([csv], { type: 'text/csv' }));
-        };
+        csvBtn.onclick = () => downloadBlob(csvName, csvBlob);
         const pngBtn = o.summary.querySelector<HTMLButtonElement>('#sum-download-png')!;
-        pngBtn.onclick = () => {
-            downloadCanvasPng(`gazemap_${stamp}.png`, gazemapCanvas);
-        };
+        pngBtn.onclick = () => downloadCanvasPng(pngName, gazemapCanvas);
         const closeBtn = o.summary.querySelector<HTMLButtonElement>('#sum-close')!;
         closeBtn.onclick = () => {
             o.destroy();
             this.overlay = null;
         };
+
+        // Auto-save to gaze_result/ via the dev-server middleware. Silent
+        // no-op in production builds (the endpoint doesn't exist); in
+        // that case the user can still fall back to the download buttons.
+        const saveStatusEl = o.summary.querySelector<HTMLElement>('#sum-save-status');
+        if (saveStatusEl) saveStatusEl.textContent = 'saving CSV + PNG to gaze_result/…';
+        void (async () => {
+            const savedPaths: string[] = [];
+            const errs: string[] = [];
+            const csvRes = await autoSaveToServer(csvName, csvBlob);
+            if (csvRes.ok && csvRes.path) savedPaths.push(csvRes.path);
+            else if (csvRes.error) errs.push(`csv: ${csvRes.error}`);
+
+            const pngBlob = await canvasToPngBlob(gazemapCanvas);
+            if (pngBlob) {
+                const pngRes = await autoSaveToServer(pngName, pngBlob);
+                if (pngRes.ok && pngRes.path) savedPaths.push(pngRes.path);
+                else if (pngRes.error) errs.push(`png: ${pngRes.error}`);
+            }
+
+            if (saveStatusEl) {
+                if (savedPaths.length > 0 && errs.length === 0) {
+                    saveStatusEl.textContent = `✓ saved to ${savedPaths.join(' + ')}`;
+                    saveStatusEl.style.color = '#9f9';
+                } else if (savedPaths.length > 0) {
+                    saveStatusEl.textContent = `partial save: ${savedPaths.join(', ')} · errors: ${errs.join('; ')}`;
+                    saveStatusEl.style.color = '#fd7';
+                } else {
+                    saveStatusEl.textContent = `auto-save unavailable (${errs.join('; ')}) — use Download buttons`;
+                    saveStatusEl.style.color = '#fa7';
+                }
+            }
+        })();
     }
 }
