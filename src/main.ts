@@ -6,6 +6,7 @@ import { BlinkDetector } from './blinkDetector';
 import { GazeController } from './control/controller';
 import { computeSnap, SnapStrength } from './control/snapping';
 import { Benchmark } from './benchmark/benchmark';
+import { FaceMeshGazeEngine } from './gaze/engine';
 
 let currentMode: 'tracker' | 'label' | 'video' = 'tracker';
 let labelMode: LabelMode | null = null;
@@ -32,6 +33,29 @@ const snapStrength = new SnapStrength(120);
 // never appears to end users unless they explicitly opt in.
 const urlParams = new URLSearchParams(window.location.search);
 const devMode = import.meta.env.DEV || urlParams.has('dev');
+
+// Gaze engine selection. Default stays WebGazer so existing users are
+// unaffected. `?engine=facemesh` switches to MediaPipe FaceMesh + KRR —
+// gives the regression head iris landmarks directly instead of raw eye
+// pixel patches, which is the single biggest input upgrade we can make.
+const useFaceMesh = urlParams.get('engine') === 'facemesh';
+const facemeshEngine: FaceMeshGazeEngine | null = useFaceMesh ? new FaceMeshGazeEngine() : null;
+
+// Route both engines into the same controller. Done once at module scope
+// so re-calibration doesn't stack listeners.
+if (facemeshEngine) {
+    facemeshEngine.onGaze((x, y) => {
+        gazeController.push(x, y, performance.now());
+    });
+}
+
+function recordCalibrationSample(x: number, y: number): void {
+    if (useFaceMesh && facemeshEngine) {
+        facemeshEngine.recordSample(x, y);
+    } else {
+        webgazer.recordScreenPosition(x, y, 'click');
+    }
+}
 // Rough conversion for degree-of-visual-angle readouts. Default 45 px/deg
 // matches a ~14" laptop at arm's length; tune via `?pxperdeg=N` if you
 // know your geometry (e.g. measure 1 cm at viewing distance → divide by
@@ -100,14 +124,14 @@ window.onload = function() {
                 heatmapContainer.style.display = 'block';
                 correctionControls.style.display = 'flex';
                 blinkLogContainer.style.display = 'flex';
-                webgazer.showVideoPreview(true);
+                if (!useFaceMesh) webgazer.showVideoPreview(true);
             }
         } else {
             gazeDot.style.display = 'none';
             heatmapContainer.style.display = 'none';
             correctionControls.style.display = 'none';
             blinkLogContainer.style.display = 'none';
-            if (webgazerStarted) {
+            if (webgazerStarted && !useFaceMesh) {
                 webgazer.showVideoPreview(false);
             }
         }
@@ -370,6 +394,13 @@ window.onload = function() {
         blinkDetector.start();
         gazeController.reset();
 
+        // FaceMesh engine already routes gaze through the controller; we
+        // only need to register the WebGazer listener in legacy mode. The
+        // blink detector's patch-variance method is WebGazer-specific and
+        // is a no-op in FaceMesh mode (we can replace it with a FaceMesh
+        // EAR-based detector later).
+        if (useFaceMesh) return;
+
         webgazer.setGazeListener((data, _elapsedTime) => {
             if (data == null) return;
             gazeController.push(data.x, data.y, performance.now());
@@ -405,8 +436,8 @@ window.onload = function() {
             dot.style.fontWeight = 'bold';
             
             dot.onclick = (e) => {
-                // Manually feed this click to WebGazer as training data
-                webgazer.recordScreenPosition(e.clientX, e.clientY, 'click');
+                // Manually feed this click to whichever engine is active.
+                recordCalibrationSample(e.clientX, e.clientY);
 
                 const count = (dotClicks.get(dot) || 0) + 1;
                 dotClicks.set(dot, count);
@@ -427,6 +458,16 @@ window.onload = function() {
                     dotsCompleted++;
                     
                     if (dotsCompleted >= calibrationDots.length) {
+                        // FaceMesh engine needs an explicit KRR fit against
+                        // the accumulated samples; WebGazer fits online as
+                        // samples arrive so there's nothing to do there.
+                        if (useFaceMesh && facemeshEngine) {
+                            const ok = facemeshEngine.refit();
+                            if (!ok) {
+                                alert(`Only ${facemeshEngine.sampleCount} samples captured — FaceMesh couldn't see your face on most clicks. Try re-calibrating with better lighting / face centered.`);
+                                return;
+                            }
+                        }
                         calibrationDotsContainer.style.display = 'none';
                         heatmapContainer.style.display = 'block';
                         // Show mode toggle and correction controls after calibration
@@ -492,7 +533,9 @@ window.onload = function() {
         const target = e.target as HTMLElement;
         if (target.closest('#mode-toggle, #correction-controls, #heatmap-container, #calibration-instructions, button')) return;
 
-        webgazer.recordScreenPosition(e.clientX, e.clientY, 'click');
+        recordCalibrationSample(e.clientX, e.clientY);
+        // FaceMesh KRR needs an explicit refit — WebGazer learns online.
+        if (useFaceMesh && facemeshEngine) facemeshEngine.refit();
         correctionCount++;
         correctionCountSpan.textContent = `corrections: ${correctionCount}`;
         showCorrectionRipple(e.clientX, e.clientY);
@@ -524,7 +567,11 @@ window.onload = function() {
                     '按「取消」→ 保留舊資料，追加校準'
                 );
                 if (reset) {
-                    await webgazer.clearData();
+                    if (useFaceMesh && facemeshEngine) {
+                        await facemeshEngine.clearData();
+                    } else {
+                        await webgazer.clearData();
+                    }
                 }
                 gazeController.reset();
                 initHeatmap();
@@ -533,23 +580,31 @@ window.onload = function() {
             }
 
             initHeatmap();
-            await webgazer.begin();
-            webgazer.showVideoPreview(true);
-            webgazer.showPredictionPoints(false);
-            webgazer.applyKalmanFilter(true);
-            // Prevent WebGazer from auto-learning on every click (we handle it explicitly in correction mode)
-            webgazer.removeMouseEventListeners();
-
-            alert('Webgazer started! Please click on each yellow dot to calibrate.');
+            if (useFaceMesh && facemeshEngine) {
+                await facemeshEngine.begin();
+                alert(
+                    'FaceMesh engine ready!\n\n' +
+                    'Click on each yellow dot while looking at it. The KRR model ' +
+                    'fits after all dots are completed.'
+                );
+            } else {
+                await webgazer.begin();
+                webgazer.showVideoPreview(true);
+                webgazer.showPredictionPoints(false);
+                webgazer.applyKalmanFilter(true);
+                // Prevent WebGazer from auto-learning on every click (we handle it explicitly in correction mode)
+                webgazer.removeMouseEventListeners();
+                alert('Webgazer started! Please click on each yellow dot to calibrate.');
+            }
             startCalibration();
         } catch (err: any) {
-            console.error('Webgazer error:', err);
+            console.error('Gaze engine error:', err);
             if (err.name === 'NotAllowedError' || err.name === 'PermissionDeniedError') {
                 alert('Camera access was denied. Please allow camera access and try again.');
             } else if (err.name === 'NotFoundError' || err.name === 'DevicesNotFoundError') {
                 alert('No camera found. Please connect a webcam and try again.');
             } else {
-                alert('Could not start webgazer: ' + err.message);
+                alert('Could not start gaze engine: ' + err.message);
             }
         }
     };
