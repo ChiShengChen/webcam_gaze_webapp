@@ -32,6 +32,8 @@ const DEFAULT: EngineConfig = {
     lambda: 1e-3,
 };
 
+const BLINK_EAR_THRESHOLD = 0.15;
+
 type GazeListener = (x: number, y: number) => void;
 
 interface CalibSample {
@@ -145,9 +147,18 @@ export class FaceMeshGazeEngine {
 
     /** Record a calibration sample against the user's latest fixation
      *  (i.e. against whatever FaceMesh feature vector we have from the
-     *  most recent frame). Silently no-ops if features aren't ready. */
+     *  most recent frame). Returns false and silently skips if
+     *  features aren't ready or the eye aspect ratio suggests a blink —
+     *  those samples would teach the model that "eyes closed → look
+     *  here", which is worse than no sample at all. */
     recordSample(screenX: number, screenY: number): boolean {
         if (!this.lastFeatures) return false;
+        // Feature indices 4 and 5 are left/right eye aspect ratio; ~0.15
+        // is a standard blink threshold. Skip the sample if either eye
+        // is closed far enough that the iris signal is unreliable.
+        const earL = this.lastFeatures[4];
+        const earR = this.lastFeatures[5];
+        if (earL < BLINK_EAR_THRESHOLD || earR < BLINK_EAR_THRESHOLD) return false;
         this.calibSamples.push({
             features: this.lastFeatures.slice(),
             target: { x: screenX, y: screenY },

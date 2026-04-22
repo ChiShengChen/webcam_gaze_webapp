@@ -7,6 +7,7 @@ import { GazeController } from './control/controller';
 import { computeSnap, SnapStrength } from './control/snapping';
 import { Benchmark } from './benchmark/benchmark';
 import { FaceMeshGazeEngine } from './gaze/engine';
+import { SmoothPursuit } from './calibration/smoothPursuit';
 
 let currentMode: 'tracker' | 'label' | 'video' = 'tracker';
 let labelMode: LabelMode | null = null;
@@ -41,6 +42,15 @@ const devMode = import.meta.env.DEV || urlParams.has('dev');
 const useFaceMesh = urlParams.get('engine') === 'facemesh';
 const facemeshEngine: FaceMeshGazeEngine | null = useFaceMesh ? new FaceMeshGazeEngine() : null;
 
+// Calibration method. Smooth-pursuit (~500 samples over 18 s) is the
+// default for FaceMesh so the KRR head has enough data to shape a real
+// non-linear mapping; WebGazer stays on the 9-dot flow. `?calib=9point`
+// or `?calib=pursuit` overrides either way.
+const calibModeOverride = urlParams.get('calib');
+const useSmoothPursuit =
+    calibModeOverride === 'pursuit' ||
+    (useFaceMesh && calibModeOverride !== '9point');
+
 // Route both engines into the same controller. Done once at module scope
 // so re-calibration doesn't stack listeners.
 if (facemeshEngine) {
@@ -49,12 +59,12 @@ if (facemeshEngine) {
     });
 }
 
-function recordCalibrationSample(x: number, y: number): void {
+function recordCalibrationSample(x: number, y: number): boolean {
     if (useFaceMesh && facemeshEngine) {
-        facemeshEngine.recordSample(x, y);
-    } else {
-        webgazer.recordScreenPosition(x, y, 'click');
+        return facemeshEngine.recordSample(x, y);
     }
+    webgazer.recordScreenPosition(x, y, 'click');
+    return true; // WebGazer has no acceptance signal; treat every click as a sample.
 }
 // Rough conversion for degree-of-visual-angle readouts. Default 45 px/deg
 // matches a ~14" laptop at arm's length; tune via `?pxperdeg=N` if you
@@ -483,6 +493,66 @@ window.onload = function() {
         });
     }
 
+    // ==================== Smooth-pursuit calibration ====================
+    // 18 s of tracking a moving Lissajous target → ~500 samples. Fed into
+    // whichever engine is active via recordCalibrationSample (same sink
+    // the 9-dot flow uses); the FaceMesh engine refits its KRR at the end,
+    // WebGazer accumulates samples online.
+    function startSmoothPursuitCalibration() {
+        // Hide UI chrome; the overlay covers everything anyway, but
+        // hiding these avoids z-index fights on abort.
+        heatmapContainer.style.display = 'none';
+        modeToggle.style.display = 'none';
+        correctionControls.style.display = 'none';
+        blinkLogContainer.style.display = 'none';
+        gazeDot.style.display = 'none';
+
+        const runner = new SmoothPursuit(
+            (x, y) => recordCalibrationSample(x, y),
+            { durationMs: 18000, countdownMs: 3000 }
+        );
+        runner.start((result) => {
+            const { accepted, rejected, aborted } = result;
+            if (aborted) {
+                // Restore chrome, leave model in whatever state it was in.
+                heatmapContainer.style.display = webgazerStarted ? 'block' : 'none';
+                modeToggle.style.display = 'flex';
+                correctionControls.style.display = webgazerStarted ? 'flex' : 'none';
+                blinkLogContainer.style.display = webgazerStarted ? 'flex' : 'none';
+                gazeDot.style.display = webgazerStarted ? 'block' : 'none';
+                return;
+            }
+            if (useFaceMesh && facemeshEngine) {
+                const ok = facemeshEngine.refit();
+                if (!ok) {
+                    alert(
+                        `Only ${accepted} samples captured (${rejected} skipped for blinks or missing face). ` +
+                        `Need at least 20 to fit. Try re-calibrating with better lighting and face centered.`
+                    );
+                    return;
+                }
+            }
+            heatmapContainer.style.display = 'block';
+            modeToggle.style.display = 'flex';
+            correctionControls.style.display = 'flex';
+            blinkLogContainer.style.display = 'flex';
+            alert(
+                `Calibration complete! (${accepted} samples accepted, ${rejected} skipped)\n\n` +
+                `The red dot will now follow your gaze. Enable "Click to Correct" for on-the-fly tuning.`
+            );
+            startGazeListener();
+            maybeOfferBenchmark();
+        });
+    }
+
+    function runCalibrationFlow() {
+        if (useSmoothPursuit) {
+            startSmoothPursuitCalibration();
+        } else {
+            startCalibration();
+        }
+    }
+
     // ==================== Dev-mode Benchmark ====================
     // 16-col × 8-row Z-pattern sweep, 3 s dwell per cell. Emits a CSV
     // (per-sample + per-cell summary + run metadata) plus a gazemap PNG.
@@ -575,18 +645,20 @@ window.onload = function() {
                 }
                 gazeController.reset();
                 initHeatmap();
-                startCalibration();
+                runCalibrationFlow();
                 return;
             }
 
             initHeatmap();
             if (useFaceMesh && facemeshEngine) {
                 await facemeshEngine.begin();
-                alert(
-                    'FaceMesh engine ready!\n\n' +
-                    'Click on each yellow dot while looking at it. The KRR model ' +
-                    'fits after all dots are completed.'
-                );
+                if (!useSmoothPursuit) {
+                    alert(
+                        'FaceMesh engine ready!\n\n' +
+                        'Click on each yellow dot while looking at it. The KRR model ' +
+                        'fits after all dots are completed.'
+                    );
+                }
             } else {
                 await webgazer.begin();
                 webgazer.showVideoPreview(true);
@@ -594,9 +666,11 @@ window.onload = function() {
                 webgazer.applyKalmanFilter(true);
                 // Prevent WebGazer from auto-learning on every click (we handle it explicitly in correction mode)
                 webgazer.removeMouseEventListeners();
-                alert('Webgazer started! Please click on each yellow dot to calibrate.');
+                if (!useSmoothPursuit) {
+                    alert('Webgazer started! Please click on each yellow dot to calibrate.');
+                }
             }
-            startCalibration();
+            runCalibrationFlow();
         } catch (err: any) {
             console.error('Gaze engine error:', err);
             if (err.name === 'NotAllowedError' || err.name === 'PermissionDeniedError') {
