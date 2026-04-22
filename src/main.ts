@@ -9,6 +9,7 @@ import { computeSnap, SnapStrength } from './control/snapping';
 import { Benchmark } from './benchmark/benchmark';
 import { FaceMeshGazeEngine } from './gaze/engine';
 import { SmoothPursuit } from './calibration/smoothPursuit';
+import { PositioningCoach } from './calibration/coach';
 
 let currentMode: 'tracker' | 'label' | 'video' = 'tracker';
 let labelMode: LabelMode | null = null;
@@ -55,6 +56,11 @@ const calibModeOverride = urlParams.get('calib');
 const useSmoothPursuit =
     calibModeOverride === 'pursuit' ||
     (useFaceMesh && calibModeOverride !== '9point');
+
+// Positioning coach gates calibration on face framing + distance +
+// head tilt + lighting. Requires FaceMesh (WebGazer doesn't expose the
+// needed landmarks). Default on in FaceMesh mode; `?coach=0` bypasses.
+const useCoach = useFaceMesh && urlParams.get('coach') !== '0';
 
 // Route both engines into the same controller. Done once at module scope
 // so re-calibration doesn't stack listeners.
@@ -639,6 +645,21 @@ window.onload = function() {
         }
     }
 
+    // Run the coach first when enabled; otherwise straight to calibration.
+    // Used by both first-time and re-calibration entry points so the user
+    // gets the same framing check whenever they ask to calibrate.
+    function runCoachedFlow() {
+        if (useCoach && facemeshEngine) {
+            const coach = new PositioningCoach(facemeshEngine);
+            coach.start((r) => {
+                if (!r.proceeded) return;
+                runCalibrationFlow();
+            });
+        } else {
+            runCalibrationFlow();
+        }
+    }
+
     // ==================== Dev-mode Benchmark ====================
     // 16-col × 8-row Z-pattern sweep, 3 s dwell per cell. Emits a CSV
     // (per-sample + per-cell summary + run metadata) plus a gazemap PNG.
@@ -731,7 +752,7 @@ window.onload = function() {
                 }
                 gazeController.reset();
                 initHeatmap();
-                runCalibrationFlow();
+                runCoachedFlow();
                 return;
             }
 
@@ -762,7 +783,7 @@ window.onload = function() {
                     alert('Webgazer started! Please click on each yellow dot to calibrate.');
                 }
             }
-            runCalibrationFlow();
+            runCoachedFlow();
         } catch (err: any) {
             console.error('Gaze engine error:', err);
             if (err.name === 'NotAllowedError' || err.name === 'PermissionDeniedError') {

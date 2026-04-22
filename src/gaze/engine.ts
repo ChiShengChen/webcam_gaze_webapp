@@ -156,6 +156,13 @@ export class FaceMeshGazeEngine {
         el.play().catch(() => { /* preview failures are non-fatal */ });
     }
 
+    /** Expose the internal video element so quality-check code (e.g.
+     *  the positioning coach) can sample pixels for lighting analysis
+     *  without having to open its own getUserMedia stream. */
+    get videoElement(): HTMLVideoElement | null {
+        return this.video;
+    }
+
     /** Record a calibration sample against the user's latest fixation
      *  (i.e. against whatever FaceMesh feature vector we have from the
      *  most recent frame). Returns false and silently skips if
