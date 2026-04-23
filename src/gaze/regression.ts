@@ -130,28 +130,89 @@ export class KernelRidgeRegression {
  * Decoupled x/y predictor — two independent KRRs sharing the same feature
  * space. Standard setup for gaze regression; the two screen axes have
  * different geometry so sharing a model would waste capacity.
+ *
+ * Wraps KernelRidgeRegression with two preprocessing steps that matter a
+ * lot for RBF kernels:
+ *
+ *   1. Per-dimension z-score standardisation of the feature vector.
+ *      Without this, a single high-variance feature (e.g. face centre
+ *      position, range [0,1]) dominates the kernel distance and drowns
+ *      out a useful-but-small feature (e.g. iris radius, range ~0.007).
+ *      Standardising first makes the RBF treat every dimension on the
+ *      same footing.
+ *
+ *   2. Target centring (y − mean, add mean back on predict). KRR without
+ *      centring collapses predictions toward 0 under heavy regularisation
+ *      — in our case, that pulled the cursor to the top-left corner of
+ *      the screen. With centring it collapses to the target mean (≈
+ *      screen centre), which is a much more honest "I don't know" output.
  */
 export class GazeKRR {
     private rx = new KernelRidgeRegression();
     private ry = new KernelRidgeRegression();
     private _fitted = false;
     private _gamma = 0;
+    private featMean: number[] = [];
+    private featStd: number[] = [];
+    private targetMeanX = 0;
+    private targetMeanY = 0;
 
-    fit(features: number[][], targets: { x: number; y: number }[], lambda = 1e-3): void {
+    fit(features: number[][], targets: { x: number; y: number }[], lambda = 1e-2): void {
         if (features.length !== targets.length) {
             throw new Error('GazeKRR: features/targets length mismatch');
         }
-        const gamma = medianHeuristicGamma(features);
-        const yx = targets.map(t => t.x);
-        const yy = targets.map(t => t.y);
-        this.rx.fit(features, yx, { gamma, lambda });
-        this.ry.fit(features, yy, { gamma, lambda });
+        if (features.length === 0) {
+            throw new Error('GazeKRR: empty training set');
+        }
+
+        // Feature z-score statistics.
+        const d = features[0].length;
+        this.featMean = new Array(d).fill(0);
+        this.featStd = new Array(d).fill(1);
+        for (let j = 0; j < d; j++) {
+            let sum = 0;
+            for (const f of features) sum += f[j];
+            this.featMean[j] = sum / features.length;
+            let sqsum = 0;
+            for (const f of features) {
+                const diff = f[j] - this.featMean[j];
+                sqsum += diff * diff;
+            }
+            const variance = sqsum / features.length;
+            // Floor to avoid divide-by-zero on constant features (e.g.
+            // landmarks that don't move across the calibration run).
+            this.featStd[j] = Math.sqrt(variance) || 1e-6;
+        }
+        const Xstd = features.map(f => this.standardise(f));
+
+        // Target centring — fit on residuals, add mean back in predict().
+        this.targetMeanX = targets.reduce((a, t) => a + t.x, 0) / targets.length;
+        this.targetMeanY = targets.reduce((a, t) => a + t.y, 0) / targets.length;
+        const yx = targets.map(t => t.x - this.targetMeanX);
+        const yy = targets.map(t => t.y - this.targetMeanY);
+
+        const gamma = medianHeuristicGamma(Xstd);
+        this.rx.fit(Xstd, yx, { gamma, lambda });
+        this.ry.fit(Xstd, yy, { gamma, lambda });
         this._fitted = true;
         this._gamma = gamma;
     }
 
     predict(x: number[]): { x: number; y: number } {
-        return { x: this.rx.predict(x), y: this.ry.predict(x) };
+        if (!this._fitted) return { x: 0, y: 0 };
+        const xStd = this.standardise(x);
+        return {
+            x: this.rx.predict(xStd) + this.targetMeanX,
+            y: this.ry.predict(xStd) + this.targetMeanY,
+        };
+    }
+
+    private standardise(f: number[]): number[] {
+        const out = new Array(f.length);
+        for (let j = 0; j < f.length; j++) {
+            out[j] = (f[j] - this.featMean[j]) / this.featStd[j];
+        }
+        return out;
     }
 
     get isFitted(): boolean {

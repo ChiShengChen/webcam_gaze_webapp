@@ -29,14 +29,14 @@ const DEFAULT: EngineConfig = {
     videoWidth: 640,
     videoHeight: 480,
     minSamples: 20,
-    // Dense pursuit samples are temporally correlated — adjacent frames
-    // are near-identical in feature space, so the kernel matrix is
-    // close to singular and small λ lets α blow up. Benchmarks showed
-    // KRR predicting y values hundreds of pixels OUTSIDE the training
-    // range. Bumping λ two orders of magnitude regularises that back.
-    // The sparse 9-dot case is less sensitive either way because the
-    // support set is small.
-    lambda: 1e-1,
+    // λ=1e-3 under-regularised dense pursuit data so badly that α blew
+    // up and predictions flew off-screen. λ=1e-1 suppressed the blow-up
+    // but over-shrank α so predictions collapsed toward (0,0). After
+    // adding feature standardisation + target centring in GazeKRR, the
+    // kernel matrix is much better conditioned and collapse defaults to
+    // the target mean (≈ screen centre) rather than the origin, so a
+    // middle value works cleanly.
+    lambda: 1e-2,
 };
 
 const BLINK_EAR_THRESHOLD = 0.15;
