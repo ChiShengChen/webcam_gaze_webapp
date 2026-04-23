@@ -52,6 +52,10 @@ function cholSolve(a: number[][], b: number[]): number[] {
     return x;
 }
 
+/** Lower bound for per-feature std after z-score normalisation. See the
+ *  detailed comment in GazeKRR.fit for the rationale. */
+const STD_FLOOR = 0.05;
+
 function sqEuclid(a: number[], b: number[]): number {
     let s = 0;
     for (let i = 0; i < a.length; i++) {
@@ -169,6 +173,7 @@ export class GazeKRR {
         const d = features[0].length;
         this.featMean = new Array(d).fill(0);
         this.featStd = new Array(d).fill(1);
+        const rawStds = new Array(d).fill(0);
         for (let j = 0; j < d; j++) {
             let sum = 0;
             for (const f of features) sum += f[j];
@@ -179,11 +184,27 @@ export class GazeKRR {
                 sqsum += diff * diff;
             }
             const variance = sqsum / features.length;
-            // Floor to avoid divide-by-zero on constant features (e.g.
-            // landmarks that don't move across the calibration run).
-            this.featStd[j] = Math.sqrt(variance) || 1e-6;
+            rawStds[j] = Math.sqrt(variance);
+            // Floor matters. If the user keeps their head still during
+            // pursuit calibration, head-pose features barely move, so
+            // their raw std is tiny. Dividing by a tiny std turns any
+            // inference-time jitter into a huge standardised swing —
+            // low-variance features end up dominating the RBF kernel,
+            // which is exactly backwards. Flooring at 0.05 caps the
+            // amplification; features that really do vary (iris dx/dy
+            // at std ~0.2) are unaffected.
+            this.featStd[j] = Math.max(rawStds[j], STD_FLOOR);
         }
         const Xstd = features.map(f => this.standardise(f));
+
+        // One-line diagnostics so a failing calibration is debuggable from
+        // the browser console without having to edit code. Indices match
+        // the layout in src/gaze/features.ts.
+        console.log('[GazeKRR] fit: N=' + features.length,
+            'gamma=' + medianHeuristicGamma(Xstd).toExponential(2),
+            'lambda=' + lambda.toExponential(2),
+            'feature_raw_std=' + rawStds.map(v => v.toFixed(4)).join(','),
+            'floored_std=' + this.featStd.map(v => v.toFixed(4)).join(','));
 
         // Target centring — fit on residuals, add mean back in predict().
         this.targetMeanX = targets.reduce((a, t) => a + t.x, 0) / targets.length;
