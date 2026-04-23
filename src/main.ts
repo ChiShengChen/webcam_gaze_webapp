@@ -142,6 +142,23 @@ function recordCalibrationSample(x: number, y: number): boolean {
 const pxPerDegreeRaw = Number(urlParams.get('pxperdeg'));
 const pxPerDegree = Number.isFinite(pxPerDegreeRaw) && pxPerDegreeRaw > 0 ? pxPerDegreeRaw : 45;
 
+// Benchmark grid + dwell can be shrunk for faster iteration.
+//   ?fast=1     -> 4x8 grid, 1.5 s dwell (~48 s total vs ~6.4 min default)
+//   ?rows=N, ?cols=M, ?dwell=MS  -> individual overrides (take priority)
+// The mode-tagged filename stays the same; CSV metadata embeds the grid
+// dims so debug runs are self-identifying when comparing side-by-side.
+function intParam(name: string, min: number, max: number): number | null {
+    const raw = urlParams.get(name);
+    if (!raw) return null;
+    const n = Number(raw);
+    if (!Number.isFinite(n) || !Number.isInteger(n) || n < min || n > max) return null;
+    return n;
+}
+const fastMode = urlParams.get('fast') === '1';
+const gridRows = intParam('rows', 1, 32) ?? (fastMode ? 4 : 8);
+const gridCols = intParam('cols', 1, 64) ?? (fastMode ? 8 : 16);
+const dwellMs = intParam('dwell', 200, 10000) ?? (fastMode ? 1500 : 3000);
+
 // Mode-tagged label — auto-save filenames embed this so multiple runs
 // in the same dev session land in distinct files in gaze_result/.
 // URL layout is deliberately flat so the label is obvious:
@@ -158,9 +175,9 @@ const runLabel = (() => {
 })();
 
 const benchmark = new Benchmark(gazeController, {
-    rows: 8,
-    cols: 16,
-    dwellMs: 3000,
+    rows: gridRows,
+    cols: gridCols,
+    dwellMs,
     pxPerDegree,
     runLabel,
 });
@@ -686,9 +703,14 @@ window.onload = function() {
         // Defer past the calibration-complete alert so the user actually sees
         // the prompt instead of it queuing behind the alert.
         setTimeout(() => {
+            const totalCells = gridRows * gridCols;
+            const totalSec = Math.round((totalCells * dwellMs) / 1000);
+            const mins = Math.floor(totalSec / 60);
+            const secs = totalSec % 60;
+            const dur = mins > 0 ? `${mins}m ${secs}s` : `${secs}s`;
             const ok = confirm(
                 'Dev mode detected.\n\n' +
-                'Run accuracy benchmark? (16×8 grid, 3 s per cell ≈ 6.4 min)\n\n' +
+                `Run accuracy benchmark? (${gridCols}×${gridRows} grid, ${(dwellMs/1000).toFixed(1)} s per cell ≈ ${dur})\n\n` +
                 'You will be asked to gaze at each highlighted cell in Z-order,' +
                 ' left-to-right, top-to-bottom. You can abort at any time.'
             );

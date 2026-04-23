@@ -52,6 +52,12 @@ export interface OverallStats {
     pxPerDegree: number;
     meanErrorDeg: number;
     medianErrorDeg: number;
+    /** Grid shape + dwell used — embedded so `?fast=1` / `?rows=…`
+     *  debug runs can be told apart from full 16×8 runs when two CSVs
+     *  are compared after the fact. */
+    gridRows: number;
+    gridCols: number;
+    dwellMs: number;
 }
 
 function median(values: number[]): number {
@@ -74,7 +80,8 @@ export function computeCellStats(
     cols: number,
     screenW: number,
     screenH: number,
-    pxPerDegree: number
+    pxPerDegree: number,
+    dwellMs: number
 ): { cells: CellStats[]; overall: OverallStats } {
     const byCell = new Map<number, Sample[]>();
     for (const s of samples) {
@@ -127,6 +134,9 @@ export function computeCellStats(
         pxPerDegree,
         meanErrorDeg: meanPx / pxPerDegree,
         medianErrorDeg: medianPx / pxPerDegree,
+        gridRows: rows,
+        gridCols: cols,
+        dwellMs,
     };
     return { cells, overall };
 }
@@ -194,6 +204,8 @@ export function buildCsv(
         `# screen_width,${overall.screenWidth}`,
         `# screen_height,${overall.screenHeight}`,
         `# px_per_degree,${overall.pxPerDegree}`,
+        `# grid,${overall.gridCols}x${overall.gridRows}`,
+        `# dwell_ms,${overall.dwellMs}`,
         `# total_samples,${overall.totalSamples}`,
         `# cells_covered,${overall.cellsCovered}/${overall.cellsTotal}`,
         `# mean_error_px,${overall.meanErrorPx.toFixed(2)}`,

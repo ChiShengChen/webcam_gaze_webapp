@@ -300,6 +300,19 @@ WebGazer mode never shows the coach (it doesn't expose the landmarks the coach r
 
 Automatically on under `vite dev`. In production builds, append `?dev=1` to surface the "Run accuracy benchmark?" prompt after calibration completes. The benchmark is a 16×8 Z-pattern sweep (3 s dwell per cell, ≈ 6.4 min) that auto-saves CSV + gazemap PNG into `gaze_result/` under a mode-tagged filename.
 
+### Benchmark grid + duration — `?fast=` / `?rows=` / `?cols=` / `?dwell=`
+
+A full 16×8 × 3 s run takes ~6.4 minutes, which is too long for debug iterations. Shortcuts:
+
+| Flag | Effect |
+|---|---|
+| `?fast=1` | 8×4 grid at 1.5 s dwell → ~48 s total. Enough to see whether a fix worked without committing to a full run. |
+| `?rows=N` | Override row count (1–32). |
+| `?cols=M` | Override column count (1–64). |
+| `?dwell=MS` | Dwell per cell in milliseconds (200–10000). |
+
+Individual overrides take precedence over `?fast=1`, so you can tune just one axis (e.g. `?fast=1&dwell=2000` = fast grid, longer dwell). CSV metadata records `grid,<cols>x<rows>` and `dwell_ms,<N>` so debug runs are trivially distinguishable from full runs even after the files are renamed.
+
 ### Visual-angle readout — `?pxperdeg=N`
 
 Default `45` (≈ 14" laptop at arm's length). Tune to your geometry so the benchmark summary's degree readout matches your physical display — measure 1 cm on-screen at your viewing distance and divide by `tan(1°) ≈ 0.0175` to get your actual px/deg.

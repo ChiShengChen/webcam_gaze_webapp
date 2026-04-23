@@ -232,7 +232,8 @@ export class Benchmark {
             this.cfg.cols,
             this.screenW,
             this.screenH,
-            this.cfg.pxPerDegree
+            this.cfg.pxPerDegree,
+            this.cfg.dwellMs
         );
         const result: BenchmarkResult = {
             samples: this.samples,
