@@ -180,6 +180,9 @@ const benchmark = new Benchmark(gazeController, {
     dwellMs,
     pxPerDegree,
     runLabel,
+    // Surface KRR fit internals in the summary panel (FaceMesh mode only;
+    // WebGazer fits are internal to that library and we can't inspect).
+    getFitDiagnostics: () => facemeshEngine?.fitDiagnostics ?? '',
 });
 
 window.onload = function() {

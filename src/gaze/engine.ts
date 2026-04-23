@@ -218,6 +218,13 @@ export class FaceMeshGazeEngine {
         return { ...s, samples: this.calibSamples.length };
     }
 
+    /** Last KRR fit's diagnostic dump — shown in the benchmark summary so
+     *  the user can see per-feature std / gamma / lambda without
+     *  opening DevTools. Empty string if never fitted. */
+    get fitDiagnostics(): string {
+        return this.krr.isFitted ? this.krr.diagnostics : '';
+    }
+
     // --- Internals ---
 
     private loop = (): void => {

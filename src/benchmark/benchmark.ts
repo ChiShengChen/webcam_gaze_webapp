@@ -35,6 +35,10 @@ export interface BenchmarkConfig {
     rows: number;
     cols: number;
     dwellMs: number;
+    /** Optional pre-run diagnostics string (e.g. KRR fit stats) shown in
+     *  the summary panel alongside the gazemap. Lets the user inspect
+     *  calibration internals without opening DevTools mid-run. */
+    getFitDiagnostics?: () => string;
     /** Ignore samples for the first N ms of each cell so the saccade
      *  into the new target does not pollute the fixation statistics. */
     warmupMs: number;
@@ -132,10 +136,28 @@ export class Benchmark {
         this.overlay.abortBtn.addEventListener('click', () => this.abort());
 
         this.resizeHandler = () => {
-            if (!this.overlay) return;
+            if (!this.overlay || !this.running) return;
+            const w = window.innerWidth;
+            const h = window.innerHeight;
+            // Mid-run resize (most commonly: opening/closing DevTools) means
+            // cells from before the resize were in a different coordinate
+            // system than cells after it — the error numbers become
+            // meaningless. Abort immediately and tell the user to redo the
+            // run rather than silently poison the CSV.
+            if (Math.abs(w - this.screenW) > 8 || Math.abs(h - this.screenH) > 8) {
+                console.warn('[Benchmark] viewport resized mid-run:',
+                    `${this.screenW}x${this.screenH} -> ${w}x${h}. Aborting.`);
+                alert(
+                    'Benchmark aborted — the browser viewport changed size during the run ' +
+                    `(${this.screenW}×${this.screenH} → ${w}×${h}). ` +
+                    'This invalidates the data because target cell positions use the viewport size. ' +
+                    '\n\nMost common cause: opening/closing DevTools mid-run. ' +
+                    'Please re-run with DevTools already open (or closed) and keep the window size fixed.'
+                );
+                this.abort();
+                return;
+            }
             sizeCanvas(this.overlay.canvas);
-            this.screenW = window.innerWidth;
-            this.screenH = window.innerHeight;
         };
         window.addEventListener('resize', this.resizeHandler);
 
@@ -300,6 +322,18 @@ export class Benchmark {
             String(result.overall.totalSamples);
         o.summary.querySelector('#sum-ppd')!.textContent =
             String(result.overall.pxPerDegree);
+
+        // Populate diagnostics panel if the engine provided a dump.
+        const diagEl = o.summary.querySelector<HTMLElement>('#sum-diagnostics');
+        if (diagEl) {
+            const diag = this.cfg.getFitDiagnostics?.();
+            if (diag) {
+                diagEl.textContent = diag;
+                diagEl.style.display = 'block';
+            } else {
+                diagEl.style.display = 'none';
+            }
+        }
 
         const stamp = tsStamp();
         const csv = buildCsv(result.samples, result.cells, result.overall);

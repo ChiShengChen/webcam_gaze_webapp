@@ -72,6 +72,15 @@ const CSS = `
     background: #2a5; color: #fff; border: none; padding: 8px 16px;
     border-radius: 6px; cursor: pointer; font-size: 13px;
 }
+#benchmark-summary .diagnostics {
+    font-family: ui-monospace, monospace; font-size: 11px;
+    color: #9cf; padding: 10px 12px; background: #0f0f15;
+    border-radius: 6px; border: 1px solid #2a2a35;
+    white-space: pre-wrap; word-break: break-all;
+    max-height: 180px; overflow-y: auto;
+    margin: 0;
+    display: none;
+}
 #benchmark-summary .save-status {
     font-family: ui-monospace, monospace; font-size: 12px;
     color: #aaa; padding: 6px 10px;
@@ -128,6 +137,7 @@ export function createOverlay(): OverlayHandles {
                 <div>px / degree<b id="sum-ppd">—</b></div>
             </div>
             <img id="sum-preview" class="preview" alt="gazemap preview" />
+            <pre id="sum-diagnostics" class="diagnostics"></pre>
             <div id="sum-save-status" class="save-status">saving…</div>
             <div class="actions">
                 <button id="sum-download-csv">Download CSV</button>

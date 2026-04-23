@@ -161,6 +161,31 @@ export class SmoothPursuit {
         this.rejected = 0;
         this.totalCalls = 0;
         this.lastSampleMs = 0;
+        // Freeze the viewport size at start. If the user opens DevTools
+        // or drags the window mid-calibration, targets shift under KRR
+        // and training data becomes incoherent — see the matching
+        // resize-abort in Benchmark. Same fix here.
+        const lockedW = window.innerWidth;
+        const lockedH = window.innerHeight;
+        const onResize = () => {
+            if (!this.running) return;
+            const w = window.innerWidth;
+            const h = window.innerHeight;
+            if (Math.abs(w - lockedW) > 8 || Math.abs(h - lockedH) > 8) {
+                console.warn('[SmoothPursuit] viewport resized mid-run:',
+                    `${lockedW}x${lockedH} -> ${w}x${h}. Aborting.`);
+                alert(
+                    'Calibration aborted — the browser viewport changed size during the run ' +
+                    `(${lockedW}×${lockedH} → ${w}×${h}). ` +
+                    'This invalidates calibration because target positions use the viewport size. ' +
+                    '\n\nMost common cause: opening/closing DevTools mid-run. ' +
+                    'Please re-calibrate with DevTools already open (or closed) and keep the window fixed.'
+                );
+                window.removeEventListener('resize', onResize);
+                this.abort();
+            }
+        };
+        window.addEventListener('resize', onResize);
 
         const finish = (aborted: boolean) => {
             this.teardown();

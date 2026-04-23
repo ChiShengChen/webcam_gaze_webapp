@@ -156,6 +156,9 @@ export class GazeKRR {
     private ry = new KernelRidgeRegression();
     private _fitted = false;
     private _gamma = 0;
+    private _lambda = 0;
+    private _lastDiagnostics = '';
+    private _rawStds: number[] = [];
     private featMean: number[] = [];
     private featStd: number[] = [];
     private targetMeanX = 0;
@@ -217,6 +220,13 @@ export class GazeKRR {
         this.ry.fit(Xstd, yy, { gamma, lambda });
         this._fitted = true;
         this._gamma = gamma;
+        this._lambda = lambda;
+        this._rawStds = rawStds;
+        this._lastDiagnostics =
+            `N=${features.length}  γ=${gamma.toExponential(2)}  λ=${lambda.toExponential(1)}\n` +
+            `feature raw std: [${rawStds.map(v => v.toFixed(4)).join(', ')}]\n` +
+            `feature after floor (${STD_FLOOR}): [${this.featStd.map(v => v.toFixed(4)).join(', ')}]\n` +
+            `target mean: (${this.targetMeanX.toFixed(0)}, ${this.targetMeanY.toFixed(0)})`;
     }
 
     predict(x: number[]): { x: number; y: number } {
@@ -242,5 +252,27 @@ export class GazeKRR {
 
     get stats(): { gamma: number; support: number } {
         return { gamma: this._gamma, support: this.rx.supportCount };
+    }
+
+    /** Human-readable fit diagnostics, populated on the last fit().
+     *  Used by the benchmark summary so the user can inspect feature
+     *  std / gamma / lambda without opening DevTools mid-run. */
+    get diagnostics(): string {
+        return this._lastDiagnostics;
+    }
+
+    /** Per-feature raw std and floored std — machine-readable companion
+     *  to `diagnostics`. Useful for programmatic feature selection. */
+    get featureStats(): { rawStd: number[]; flooredStd: number[]; mean: number[] } {
+        return {
+            rawStd: this._rawStds.slice(),
+            flooredStd: this.featStd.slice(),
+            mean: this.featMean.slice(),
+        };
+    }
+
+    /** Expose lambda for introspection. */
+    get lambda(): number {
+        return this._lambda;
     }
 }
