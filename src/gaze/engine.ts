@@ -29,7 +29,14 @@ const DEFAULT: EngineConfig = {
     videoWidth: 640,
     videoHeight: 480,
     minSamples: 20,
-    lambda: 1e-3,
+    // Dense pursuit samples are temporally correlated — adjacent frames
+    // are near-identical in feature space, so the kernel matrix is
+    // close to singular and small λ lets α blow up. Benchmarks showed
+    // KRR predicting y values hundreds of pixels OUTSIDE the training
+    // range. Bumping λ two orders of magnitude regularises that back.
+    // The sparse 9-dot case is less sensitive either way because the
+    // support set is small.
+    lambda: 1e-1,
 };
 
 const BLINK_EAR_THRESHOLD = 0.15;

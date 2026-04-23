@@ -35,6 +35,13 @@ export interface SmoothPursuitConfig {
     cyclesY: number;
     /** Amplitude as fraction of half-screen (0..1). */
     amplitude: number;
+    /** Smooth-pursuit eye lag — the eye trails a moving target by roughly
+     *  this much (well-documented ~100 ms physiological latency). We
+     *  record each sample against `targetAt(tRun - eyeLagMs)` so the
+     *  training pair matches what the eye actually saw, instead of
+     *  saddling every pair with a ~70 px systematic offset (at 700 px/s
+     *  target speed × 100 ms lag). */
+    eyeLagMs: number;
 }
 
 const DEFAULT: SmoothPursuitConfig = {
@@ -44,6 +51,7 @@ const DEFAULT: SmoothPursuitConfig = {
     cyclesX: 3,
     cyclesY: 2,
     amplitude: 0.82,
+    eyeLagMs: 100,
 };
 
 export interface SmoothPursuitResult {
@@ -188,7 +196,13 @@ export class SmoothPursuit {
                 }
                 this.renderPursuit(tRun);
                 if (now - this.lastSampleMs >= this.cfg.sampleIntervalMs) {
-                    const target = this.targetAt(tRun);
+                    // Compensate for the ~100 ms physiological eye lag —
+                    // pair the current eye features with where the target
+                    // was eyeLagMs ago, which is where the eye actually
+                    // is right now. Early in the run we clamp to t=0 so
+                    // the first sample is against the start position.
+                    const lagged = Math.max(0, tRun - this.cfg.eyeLagMs);
+                    const target = this.targetAt(lagged);
                     this.totalCalls++;
                     const ok = this.onSample(target.x, target.y);
                     if (ok) this.accepted++; else this.rejected++;
