@@ -50,7 +50,16 @@ const DEFAULT: SmoothPursuitConfig = {
     sampleIntervalMs: 33,
     cyclesX: 3,
     cyclesY: 2,
-    amplitude: 0.82,
+    // Lissajous covers [centre ± amp·half-screen], so amp=0.82 only
+    // trains the model on the middle 9–91 % of each axis. An 8×4 grid
+    // benchmark places cell centres at 6.25 %–93.75 % and the 16×8
+    // benchmark at 3.1 %–96.9 %, so the edges were pure extrapolation
+    // — and indeed per-cell data showed top/bottom rows + left edge
+    // regressing to the screen centre. 0.90 covers 5–95 %, leaves a
+    // comfortable visual margin so the pulsing dot doesn't clip at
+    // the viewport edge, and captures roughly the same range the
+    // 8×4 benchmark tests.
+    amplitude: 0.90,
     eyeLagMs: 100,
 };
 
