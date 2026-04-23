@@ -26,8 +26,14 @@ export interface EngineConfig {
 }
 
 const DEFAULT: EngineConfig = {
-    videoWidth: 640,
-    videoHeight: 480,
+    // Iris landmark precision scales with camera resolution — at 640x480
+    // FaceMesh's 10-point iris contour has ~0.02-normalised-units of
+    // quantisation noise per landmark, which is roughly half the actual
+    // gaze-tracking signal (eye-corner-relative iris dx typically varies
+    // by ~0.04 during full-screen tracking). 1280x720 cuts quantisation
+    // noise in half and nearly all modern laptop webcams support it.
+    videoWidth: 1280,
+    videoHeight: 720,
     minSamples: 20,
     // λ=1e-3 under-regularised dense pursuit samples so badly that α
     // blew up and predictions flew off-screen. λ=1e-1 suppressed the

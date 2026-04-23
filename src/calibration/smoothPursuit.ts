@@ -362,7 +362,9 @@ export class SmoothPursuit {
         instruct.innerHTML =
             `<b>用眼睛跟著黃點 · Follow the yellow dot with your eyes</b>` +
             `<span class="sub">` +
-            `• 只動眼睛，<b>頭不要轉</b> · eyes only, keep head still<br>` +
+            `• <b>眼珠要真的轉到黃點位置</b> — 不要用餘光跟<br>` +
+            `  <i>move your eyeballs; don't just let peripheral vision follow</i><br>` +
+            `• 頭不要轉 · keep head still<br>` +
             `• 不用點擊，也不用操作 · no clicks, just watch<br>` +
             `• 共 ${durationSec} 秒，眨眼會自動跳過` +
             `</span>`;

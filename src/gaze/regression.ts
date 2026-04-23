@@ -52,9 +52,18 @@ function cholSolve(a: number[][], b: number[]): number[] {
     return x;
 }
 
-/** Lower bound for per-feature std after z-score normalisation. See the
- *  detailed comment in GazeKRR.fit for the rationale. */
-const STD_FLOOR = 0.05;
+/** Lower bound for per-feature std after z-score normalisation.
+ *
+ *  Diagnostics showed that iris dx/dy std during pursuit calibration
+ *  lands around 0.04 — just below the previous 0.05 floor. The floor
+ *  was meant to dampen near-constant noise features (head pose at
+ *  ~0.005 std) without clobbering the real iris signal; we misjudged
+ *  where to put it. Dropping to 0.02 keeps head-pose features
+ *  reasonably damped but lets iris features (0.04) retain a 2× lead
+ *  over the noise floor so they actually drive the RBF distance.
+ *  Quantisation noise floor of the FaceMesh iris landmarks at
+ *  1280x720 is ~0.01, so 0.02 stays above it with margin. */
+const STD_FLOOR = 0.02;
 
 function sqEuclid(a: number[], b: number[]): number {
     let s = 0;
