@@ -5,7 +5,7 @@
 **Target venue (primary)**: HAIC-MICCAI 2026 (2nd Workshop on Human-AI Collaboration), pending deadline confirmation
 **Format**: workshop paper, ~4–8 pages
 **Status**: outline / pre-pilot
-**Last updated**: 2026-05-19 (GazeMedSeg-style heatmap aggregation + fixation filtering implemented in [src/gazeBuffer.ts](src/gazeBuffer.ts) and wired into LabelMode)
+**Last updated**: 2026-05-19 (integrated benchmark now supports `?task=sweep|drift` for WebGazer + FaceMesh+KRR; analyze.py reads both CSV and JSON so v1 / FaceMesh / v2 are directly comparable)
 
 ---
 
@@ -110,6 +110,7 @@ Search-and-position three clusters (do this FIRST — see §5):
   - **(a)** v2 dual-model auto-correction — only if v2 benchmark wins clearly
   - **(b)** Webcam-grade gaze sufficiency for SAM region-prompting (precision delegated to SAM), enabled by **streaming Gaussian-heatmap aggregation adapted from Zhong et al. (MICCAI 2024)** — implemented in [src/gazeBuffer.ts](src/gazeBuffer.ts); fixation filtering follows GazeMedSeg rules (drop out-of-bounds, require ≥50 ms dwell)
   - **(c)** Multimodal synchronisation engineering (gaze + audio + frame timestamps)
+  - **(d) ⭐ leading candidate** — **FaceMesh + 13-dim iris-aware features + KRR with RBF kernel** ([src/gaze/](src/gaze/)). Replaces WebGazer's ridge-over-raw-pixels with iris-corner-normalised features + non-linear regression + smooth-pursuit calibration + positioning coach. Initial benchmark data ([gaze_result/](gaze_result/)) shows comparable absolute accuracy to a well-calibrated WebGazer (~11°), but the paper-quality design rationale lives directly in the code comments ([regression.ts:55-67](src/gaze/regression.ts#L55-L67) `STD_FLOOR`, [features.ts:1-25](src/gaze/features.ts#L1-L25) feature vector). gaze_v2/ rebuild demotes to future-work.
 - Implementation: Vite + ONNX Runtime Web + WebGazer/custom + MediaRecorder
 
 ### 4.4 Technical Evaluation (~1 page)

@@ -313,6 +313,19 @@ A full 16×8 × 3 s run takes ~6.4 minutes, which is too long for debug iteratio
 
 Individual overrides take precedence over `?fast=1`, so you can tune just one axis (e.g. `?fast=1&dwell=2000` = fast grid, longer dwell). CSV metadata records `grid,<cols>x<rows>` and `dwell_ms,<N>` so debug runs are trivially distinguishable from full runs even after the files are renamed.
 
+### Benchmark task — `?task=sweep` (default) or `?task=drift`
+
+Two task modes share the same overlay, CSV format, and engine plumbing — pick by URL flag. Drift mode is useful for measuring how a calibrated model degrades over wall-clock time; sweep is for static-accuracy snapshots.
+
+| Flag | Effect |
+|---|---|
+| `?task=sweep` *(default)* | Row-major Z-pattern over every cell, no idle gap. Same behaviour as before. |
+| `?task=drift` | Random `?visits=10` cells, each shown for `?dwell=2000` ms with `?idle=28000` ms gap. Total ≈ 5 min. The gap is the point: drift only develops with wall-clock time between samples. |
+| `?visits=N` | Drift-only — number of target presentations (default 10). |
+| `?idle=MS` | Idle gap between presentations (default 28000 in drift mode, 0 in sweep). |
+
+In drift mode the run-label gains a `_drift` suffix (e.g. `benchmark_facemesh_pursuit_drift_<ts>.csv`) so sweep and drift runs of the same pipeline land in distinct files.
+
 ### Visual-angle readout — `?pxperdeg=N`
 
 Default `45` (≈ 14" laptop at arm's length). Tune to your geometry so the benchmark summary's degree readout matches your physical display — measure 1 cm on-screen at your viewing distance and divide by `tan(1°) ≈ 0.0175` to get your actual px/deg.
