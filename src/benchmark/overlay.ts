@@ -209,31 +209,56 @@ export function drawFrame(canvas: HTMLCanvasElement, a: DrawFrameArgs): void {
     }
     ctx.stroke();
 
-    // Active cell backing.
-    const ax = a.activeCol * cellW;
-    const ay = a.activeRow * cellH;
-    ctx.fillStyle = 'rgba(255, 215, 0, 0.06)';
-    ctx.fillRect(ax, ay, cellW, cellH);
+    // Active cell highlight + crosshair — skipped during drift idle, where
+    // activeRow/activeCol are -1 to signal "no target shown". A subtle
+    // hourglass-style idle indicator in the centre gives the user feedback
+    // that the run is still progressing.
+    const hasActive = a.activeRow >= 0 && a.activeCol >= 0;
+    if (hasActive) {
+        const ax = a.activeCol * cellW;
+        const ay = a.activeRow * cellH;
+        ctx.fillStyle = 'rgba(255, 215, 0, 0.06)';
+        ctx.fillRect(ax, ay, cellW, cellH);
 
-    // Active cell border + progress fill (fills bottom-up as dwell advances).
-    ctx.strokeStyle = 'rgba(255, 215, 0, 0.95)';
-    ctx.lineWidth = 2;
-    ctx.strokeRect(ax + 1, ay + 1, cellW - 2, cellH - 2);
+        // Active cell border + progress fill (fills bottom-up as dwell advances).
+        ctx.strokeStyle = 'rgba(255, 215, 0, 0.95)';
+        ctx.lineWidth = 2;
+        ctx.strokeRect(ax + 1, ay + 1, cellW - 2, cellH - 2);
 
-    const p = Math.max(0, Math.min(1, a.dwellProgress));
-    const fillH = cellH * p;
-    ctx.fillStyle = 'rgba(255, 215, 0, 0.22)';
-    ctx.fillRect(ax, ay + (cellH - fillH), cellW, fillH);
+        const p = Math.max(0, Math.min(1, a.dwellProgress));
+        const fillH = cellH * p;
+        ctx.fillStyle = 'rgba(255, 215, 0, 0.22)';
+        ctx.fillRect(ax, ay + (cellH - fillH), cellW, fillH);
 
-    // Target crosshair at cell centre.
-    const cx = ax + cellW / 2;
-    const cy = ay + cellH / 2;
-    ctx.strokeStyle = '#ffd700';
-    ctx.lineWidth = 2;
-    ctx.beginPath();
-    ctx.moveTo(cx - 10, cy); ctx.lineTo(cx + 10, cy);
-    ctx.moveTo(cx, cy - 10); ctx.lineTo(cx, cy + 10);
-    ctx.stroke();
+        // Target crosshair at cell centre.
+        const cx = ax + cellW / 2;
+        const cy = ay + cellH / 2;
+        ctx.strokeStyle = '#ffd700';
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        ctx.moveTo(cx - 10, cy); ctx.lineTo(cx + 10, cy);
+        ctx.moveTo(cx, cy - 10); ctx.lineTo(cx, cy + 10);
+        ctx.stroke();
+    } else {
+        // Idle indicator — centred ring with progress arc so the user
+        // knows the harness is alive and roughly how long until the next
+        // target appears.
+        const cx = w / 2;
+        const cy = h / 2;
+        const r = 28;
+        ctx.strokeStyle = 'rgba(120, 140, 180, 0.35)';
+        ctx.lineWidth = 4;
+        ctx.beginPath();
+        ctx.arc(cx, cy, r, 0, Math.PI * 2);
+        ctx.stroke();
+
+        const p = Math.max(0, Math.min(1, a.dwellProgress));
+        ctx.strokeStyle = 'rgba(150, 200, 240, 0.85)';
+        ctx.lineWidth = 4;
+        ctx.beginPath();
+        ctx.arc(cx, cy, r, -Math.PI / 2, -Math.PI / 2 + p * 2 * Math.PI);
+        ctx.stroke();
+    }
 
     // Live gaze mark (so the user can confirm the tracker still works).
     if (a.recentGaze) {

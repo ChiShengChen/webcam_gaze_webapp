@@ -79,18 +79,27 @@ interface Sample {
 
 ## Compute key metrics
 
-Drop both JSON files into the same folder, then:
+Drop JSON or CSV files into the same folder, then:
 
 ```bash
-python3 bench/analyze.py path/to/bench_v1_*.json path/to/bench_v2_*.json
+# v1 / v2 standalone harness (JSON)
+python3 bench/analyze.py bench_v1_*.json bench_v2_*.json
+
+# Integrated benchmark (CSV from gaze_result/)
+python3 bench/analyze.py gaze_result/benchmark_*.csv
+
+# Mix — comparing all pipelines on whatever each one ran
+python3 bench/analyze.py gaze_result/benchmark_*.csv gaze_v2/bench_v2_*.json
 ```
 
-The script prints:
-- **Grid**: mean angular error per cell + overall, sample-loss rate, precision (RMS jitter)
-- **Drift**: error vs minutes-since-calibration, drift rate (°/min linear fit)
+The script auto-detects format from the file extension. For each file it prints:
+- **Sweep / Grid**: per-target mean / worst angular error, RMS jitter, hit rate
+- **Drift** (filename contains `_drift` for CSVs, or `name: 'drift'` for JSON):
+  error vs minutes-since-first-target, drift rate (°/min linear fit)
 
 Angular error assumes 50 cm viewing distance and 96 DPI screen; override with
-`--dist-cm` and `--dpi`.
+`--dist-cm` and `--dpi`. (CSV files also carry their own `px_per_degree` from
+the run, surfaced as a separate header-derived row in the output for reference.)
 
 ## What this benchmark does NOT cover
 

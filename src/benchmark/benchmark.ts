@@ -1,9 +1,17 @@
 /**
- * Benchmark state machine — 16×8 Z-pattern sweep, 3 s dwell per cell.
+ * Benchmark state machine — two modes:
+ *
+ *  - 'sweep' (default): row-major dwell-per-cell Z-pattern, no idle gap.
+ *    Tests static accuracy at every grid position.
+ *
+ *  - 'drift': random-subset cell visits with a long idle gap between each
+ *    presentation. Targets the model's wall-clock degradation since
+ *    calibration — the idle gap is the whole point. Without it we're
+ *    just measuring random-order sweep.
  *
  * Subscribes to the GazeController's snapped stream (what the user actually
  * sees) and logs every sample during a cell's dwell window against the
- * target centre. When all cells are done, emits a result the caller can
+ * target centre. When all visits are done, emits a result the caller can
  * feed into export.ts (CSV + gazemap PNG).
  *
  * Dev-mode only — see main.ts for the gating. The overlay hides the rest
@@ -31,6 +39,8 @@ import {
     type Sample,
 } from './export';
 
+export type BenchmarkTask = 'sweep' | 'drift';
+
 export interface BenchmarkConfig {
     rows: number;
     cols: number;
@@ -57,7 +67,19 @@ export interface BenchmarkConfig {
      *  session don't overwrite one another. Typically encoded from the
      *  URL flags (e.g. "facemesh_pursuit"). */
     runLabel: string;
-    /** Cells are ordered row-major (each row left-to-right, top-down). */
+    /** 'sweep' = row-major all cells, no idle. 'drift' = random subset,
+     *  with `idleMs` between presentations (drift signal lives in the
+     *  wall-clock gap, not the cell positions). */
+    task: BenchmarkTask;
+    /** Idle window (no target shown, no samples collected) between cell
+     *  presentations. Sweep mode keeps it at 0. Drift mode defaults to
+     *  28 s so a 2 s dwell + 28 s idle = 30 s per visit, matching the
+     *  drift protocols used in eye-tracking literature. */
+    idleMs: number;
+    /** Number of target presentations in drift mode. The cell sequence
+     *  is a uniformly-drawn-without-replacement subset of size
+     *  `driftVisits` over `rows*cols` cells. Sweep mode ignores this. */
+    driftVisits: number;
 }
 
 const DEFAULT: BenchmarkConfig = {
@@ -68,6 +90,9 @@ const DEFAULT: BenchmarkConfig = {
     requireFixation: true,
     pxPerDegree: 45,
     runLabel: 'run',
+    task: 'sweep',
+    idleMs: 0,
+    driftVisits: 10,
 };
 
 export interface BenchmarkResult {
@@ -80,13 +105,30 @@ export interface BenchmarkResult {
     screenHeight: number;
 }
 
+/**
+ * Phase of the per-visit state machine.
+ *   - 'showing': target visible, samples being collected (after warmup).
+ *   - 'idle': no target shown, no samples collected (drift-mode gap).
+ * Sweep mode never enters 'idle' because `idleMs` is 0 by default.
+ */
+type Phase = 'showing' | 'idle';
+
 export class Benchmark {
     private readonly cfg: BenchmarkConfig;
     private overlay: OverlayHandles | null = null;
     private running = false;
     private samples: Sample[] = [];
+    /** Index into `cellOrder` (which target presentation we're on). */
+    private visitIndex = 0;
+    /** Current grid-cell index, derived from cellOrder[visitIndex]. */
     private cellIndex = 0;
-    private cellStartMs = 0;
+    /** Pre-computed sequence of grid cells to visit. Sweep mode = identity
+     *  permutation [0..N-1]; drift mode = random subset of size
+     *  `cfg.driftVisits`. Stored so the same plan is reused if we ever
+     *  add replay. */
+    private cellOrder: number[] = [];
+    private phaseStartMs = 0;
+    private phase: Phase = 'showing';
     private lastGaze: { x: number; y: number } | null = null;
     private lastState: 'FIXATION' | 'SACCADE' = 'SACCADE';
     private cellSampleCount = 0;
@@ -105,9 +147,11 @@ export class Benchmark {
             this.lastGaze = { x, y };
             this.lastState = state;
             // Always track gaze so the overlay cursor keeps drawing, but
-            // only log samples once the user has settled (past warm-up) and
-            // the classifier says they are fixating.
-            const inWarmup = (t - this.cellStartMs) < this.cfg.warmupMs;
+            // only log samples once a target is actually being shown, the
+            // user has settled (past warm-up) and the classifier says they
+            // are fixating. Drift idle phase explicitly skips all logging.
+            if (this.phase !== 'showing') return;
+            const inWarmup = (t - this.phaseStartMs) < this.cfg.warmupMs;
             if (inWarmup) return;
             if (this.cfg.requireFixation && state !== 'FIXATION') return;
             this.recordSample(x, y, t);
@@ -127,8 +171,11 @@ export class Benchmark {
         this.screenW = window.innerWidth;
         this.screenH = window.innerHeight;
         this.samples = [];
-        this.cellIndex = 0;
-        this.cellStartMs = performance.now();
+        this.visitIndex = 0;
+        this.cellOrder = buildCellOrder(this.cfg);
+        this.cellIndex = this.cellOrder[0] ?? 0;
+        this.phase = 'showing';
+        this.phaseStartMs = performance.now();
 
         this.overlay = createOverlay();
         this.overlay.root.classList.add('active');
@@ -196,25 +243,39 @@ export class Benchmark {
         if (!this.running || !this.overlay) return;
 
         const now = performance.now();
-        const dwellElapsed = now - this.cellStartMs;
-        const progress = Math.min(1, dwellElapsed / this.cfg.dwellMs);
+        const phaseElapsed = now - this.phaseStartMs;
+        const totalVisits = this.cellOrder.length;
 
-        const row = Math.floor(this.cellIndex / this.cfg.cols);
-        const col = this.cellIndex % this.cfg.cols;
+        // Phase-dependent progress + target visualisation.
+        let row: number, col: number, progress: number;
+        if (this.phase === 'showing') {
+            row = Math.floor(this.cellIndex / this.cfg.cols);
+            col = this.cellIndex % this.cfg.cols;
+            progress = Math.min(1, phaseElapsed / this.cfg.dwellMs);
+        } else {
+            // Idle: no target drawn (drawFrame skips highlight when row<0).
+            row = -1;
+            col = -1;
+            progress = Math.min(1, phaseElapsed / Math.max(1, this.cfg.idleMs));
+        }
 
         // HUD text.
         const hud = this.overlay.cellLabel.parentElement!;
-        hud.querySelector('#bench-cell-idx')!.textContent = String(this.cellIndex + 1);
-        hud.querySelector('#bench-cell-total')!.textContent = String(this.cfg.rows * this.cfg.cols);
-        hud.querySelector('#bench-cell-row')!.textContent = String(row);
-        hud.querySelector('#bench-cell-col')!.textContent = String(col);
+        hud.querySelector('#bench-cell-idx')!.textContent = String(this.visitIndex + 1);
+        hud.querySelector('#bench-cell-total')!.textContent = String(totalVisits);
+        hud.querySelector('#bench-cell-row')!.textContent =
+            this.phase === 'showing' ? String(row) : '—';
+        hud.querySelector('#bench-cell-col')!.textContent =
+            this.phase === 'showing' ? String(col) : '—';
         hud.querySelector('#bench-dwell')!.textContent =
-            `${(dwellElapsed / 1000).toFixed(1)}s`;
+            `${(phaseElapsed / 1000).toFixed(1)}s`;
         hud.querySelector('#bench-count')!.textContent = String(this.cellSampleCount);
 
         const stateEl = hud.querySelector<HTMLElement>('#bench-state')!;
-        const inWarmup = dwellElapsed < this.cfg.warmupMs;
-        if (inWarmup) {
+        if (this.phase === 'idle') {
+            stateEl.textContent = 'idle (look away)';
+            stateEl.className = 'waiting';
+        } else if (phaseElapsed < this.cfg.warmupMs) {
             stateEl.textContent = 'settling';
             stateEl.className = 'settling';
         } else if (this.cfg.requireFixation && this.lastState !== 'FIXATION') {
@@ -234,18 +295,32 @@ export class Benchmark {
             recentGaze: this.lastGaze,
         });
 
-        if (dwellElapsed >= this.cfg.dwellMs) {
-            this.cellIndex++;
-            if (this.cellIndex >= this.cfg.rows * this.cfg.cols) {
+        // Phase transitions.
+        if (this.phase === 'showing' && phaseElapsed >= this.cfg.dwellMs) {
+            if (this.visitIndex + 1 >= totalVisits) {
                 this.finish();
                 return;
             }
-            this.cellStartMs = now;
-            this.cellSampleCount = 0;
+            if (this.cfg.idleMs > 0) {
+                this.phase = 'idle';
+                this.phaseStartMs = now;
+            } else {
+                this.advanceToNextVisit(now);
+            }
+        } else if (this.phase === 'idle' && phaseElapsed >= this.cfg.idleMs) {
+            this.advanceToNextVisit(now);
         }
 
         this.rafId = requestAnimationFrame(this.loop);
     };
+
+    private advanceToNextVisit(now: number): void {
+        this.visitIndex++;
+        this.cellIndex = this.cellOrder[this.visitIndex] ?? this.cellIndex;
+        this.phase = 'showing';
+        this.phaseStartMs = now;
+        this.cellSampleCount = 0;
+    }
 
     private finish(): void {
         const { cells, overall } = computeCellStats(
@@ -383,4 +458,27 @@ export class Benchmark {
             }
         })();
     }
+}
+
+/**
+ * Pick which grid cells to visit (and in what order).
+ *
+ *   - sweep: identity [0..N-1] — row-major coverage of every cell.
+ *   - drift: shuffle [0..N-1] (Fisher–Yates), take the first `driftVisits`.
+ *            Falls back to sweep length when the requested visit count
+ *            exceeds the grid.
+ */
+function buildCellOrder(cfg: BenchmarkConfig): number[] {
+    const total = cfg.rows * cfg.cols;
+    const all: number[] = [];
+    for (let i = 0; i < total; i++) all.push(i);
+    if (cfg.task !== 'drift') return all;
+
+    // Fisher–Yates partial shuffle.
+    for (let i = all.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [all[i], all[j]] = [all[j], all[i]];
+    }
+    const k = Math.max(1, Math.min(cfg.driftVisits, total));
+    return all.slice(0, k);
 }

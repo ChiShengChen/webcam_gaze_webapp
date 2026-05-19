@@ -155,9 +155,19 @@ function intParam(name: string, min: number, max: number): number | null {
     return n;
 }
 const fastMode = urlParams.get('fast') === '1';
-const gridRows = intParam('rows', 1, 32) ?? (fastMode ? 4 : 8);
-const gridCols = intParam('cols', 1, 64) ?? (fastMode ? 8 : 16);
-const dwellMs = intParam('dwell', 200, 10000) ?? (fastMode ? 1500 : 3000);
+// `?task=drift` switches to random-cell visits with a long idle gap between
+// each presentation — the gap is what surfaces calibration drift (sweep is
+// fast and back-to-back, so drift has no time to develop). Defaults tuned to
+// the protocol used in our paper: 10 visits, 2 s dwell + 28 s idle ≈ 5 min.
+const taskMode: 'sweep' | 'drift' =
+    urlParams.get('task') === 'drift' ? 'drift' : 'sweep';
+const isDrift = taskMode === 'drift';
+const gridRows = intParam('rows', 1, 32) ?? (fastMode ? 4 : isDrift ? 8 : 8);
+const gridCols = intParam('cols', 1, 64) ?? (fastMode ? 8 : isDrift ? 12 : 16);
+const dwellMs = intParam('dwell', 200, 10000)
+    ?? (fastMode ? 1500 : isDrift ? 2000 : 3000);
+const idleMs = intParam('idle', 0, 600000) ?? (isDrift ? 28000 : 0);
+const driftVisits = intParam('visits', 1, 200) ?? 10;
 
 // Mode-tagged label — auto-save filenames embed this so multiple runs
 // in the same dev session land in distinct files in gaze_result/.
@@ -171,7 +181,8 @@ const runLabel = (() => {
     const engine = useFaceMesh ? 'facemesh' : 'webgazer';
     const calib = useSmoothPursuit ? 'pursuit' : '9point';
     const coachTag = (useFaceMesh && !useCoach) ? '-nocoach' : '';
-    return `${engine}_${calib}${coachTag}`;
+    const taskTag = taskMode === 'drift' ? '_drift' : '';
+    return `${engine}_${calib}${coachTag}${taskTag}`;
 })();
 
 const benchmark = new Benchmark(gazeController, {
@@ -180,6 +191,9 @@ const benchmark = new Benchmark(gazeController, {
     dwellMs,
     pxPerDegree,
     runLabel,
+    task: taskMode,
+    idleMs,
+    driftVisits,
     // Surface KRR fit internals in the summary panel (FaceMesh mode only;
     // WebGazer fits are internal to that library and we can't inspect).
     getFitDiagnostics: () => facemeshEngine?.fitDiagnostics ?? '',
