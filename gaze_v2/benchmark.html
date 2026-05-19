@@ -1,0 +1,110 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Gaze Benchmark · v2</title>
+    <style>
+      * { box-sizing: border-box; }
+      html, body {
+        margin: 0; padding: 0;
+        height: 100%; overflow: hidden;
+        background: #0c0c10; color: #ddd;
+        font-family: system-ui, -apple-system, sans-serif;
+      }
+
+      #panel {
+        position: fixed;
+        top: 12px; left: 50%; transform: translateX(-50%);
+        background: rgba(0,0,0,0.75);
+        padding: 10px 14px; border-radius: 8px;
+        display: flex; gap: 8px; align-items: center;
+        z-index: 100; font-size: 13px;
+      }
+      #panel button {
+        background: #222; color: #eee; border: 1px solid #444;
+        padding: 6px 14px; border-radius: 16px; font-size: 13px; cursor: pointer;
+      }
+      #panel button:disabled { opacity: 0.35; cursor: not-allowed; }
+      #panel button.primary { background: #2a5; border-color: #2a5; }
+      #panel input {
+        background: #181820; color: #eee; border: 1px solid #333;
+        padding: 5px 8px; border-radius: 6px; font-size: 12px; width: 200px;
+      }
+      #status {
+        position: fixed; top: 60px; left: 50%; transform: translateX(-50%);
+        font-size: 13px; color: #9cf; z-index: 100;
+        background: rgba(0,0,0,0.5); padding: 4px 10px; border-radius: 12px;
+      }
+
+      /* Tiny preview for sanity */
+      #preview-wrap {
+        position: fixed; bottom: 12px; right: 12px;
+        background: #000; padding: 4px; border-radius: 6px; z-index: 100;
+      }
+      #preview { display: block; width: 240px; height: 135px; background: #000; }
+
+      /* Calibration overlay */
+      #calib-layer {
+        position: fixed; inset: 0; display: none; z-index: 200;
+        background: rgba(0,0,0,0.7);
+      }
+      #calib-dot {
+        position: absolute; width: 32px; height: 32px;
+        background: #ffd700; border: 3px solid #fff;
+        border-radius: 50%; transform: translate(-50%, -50%);
+        cursor: pointer; box-shadow: 0 0 20px rgba(255,215,0,0.8);
+        animation: pulse 1.3s ease-in-out infinite;
+      }
+      @keyframes pulse {
+        0%,100% { transform: translate(-50%,-50%) scale(1); }
+        50%     { transform: translate(-50%,-50%) scale(1.25); }
+      }
+      #calib-status {
+        position: fixed; bottom: 40px; left: 50%; transform: translateX(-50%);
+        color: #fff; font-size: 14px;
+      }
+
+      /* Task dot */
+      #task-dot {
+        position: fixed; display: none; width: 24px; height: 24px;
+        background: #ffd700; border: 2px solid #fff;
+        border-radius: 50%; transform: translate(-50%, -50%);
+        pointer-events: none; z-index: 150;
+        box-shadow: 0 0 16px rgba(255,215,0,0.9);
+      }
+
+      /* Gaze cursor */
+      #gaze-dot {
+        position: fixed; display: none; width: 14px; height: 14px;
+        background: rgba(240,80,80,0.35); border: 1px solid rgba(255,255,255,0.6);
+        border-radius: 50%; transform: translate(-50%, -50%);
+        pointer-events: none; z-index: 140;
+      }
+    </style>
+  </head>
+  <body>
+    <div id="panel">
+      <button id="start-btn" class="primary">Start &amp; calibrate</button>
+      <button id="grid-btn" disabled>Run grid (5×5)</button>
+      <button id="drift-btn" disabled>Run drift (5 min)</button>
+      <button id="export-btn" disabled>Export JSON</button>
+      <input id="notes" placeholder="notes (e.g. lighting, head)" />
+    </div>
+    <div id="status">Click “Start &amp; calibrate” to begin.</div>
+
+    <div id="preview-wrap">
+      <canvas id="preview" width="1280" height="720"></canvas>
+    </div>
+
+    <div id="calib-layer">
+      <div id="calib-dot"></div>
+      <div id="calib-status">Click each dot while looking at it.</div>
+    </div>
+
+    <div id="task-dot"></div>
+    <div id="gaze-dot"></div>
+
+    <script type="module" src="/src/benchmark.ts"></script>
+  </body>
+</html>
