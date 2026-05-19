@@ -58,6 +58,27 @@ export interface OverallStats {
     gridRows: number;
     gridCols: number;
     dwellMs: number;
+    /** Raw gaze callbacks per second during active (showing-phase) time.
+     *  Latency proxy — slow inference shows up here as a falling Hz.
+     *  Computed from BEFORE the warmup / fixation filter, so this is the
+     *  honest throughput of the pipeline. */
+    sampleRateHz: number;
+    /** Percentage of showing-phase wall-clock with no gaze callback for
+     *  > 200 ms (tracking-loss heuristic). 0 % is ideal. */
+    trackingLossPct: number;
+}
+
+/** Engine-level run statistics gathered live and passed to computeCellStats
+ *  for embedding into OverallStats. They are not derivable from the
+ *  per-sample list because the filter (warmup + fixation) drops a
+ *  fraction of raw callbacks before they ever become Sample rows. */
+export interface RuntimeStats {
+    /** Raw gaze callbacks during showing phase. */
+    rawSampleCount: number;
+    /** Total wall-clock duration of showing phase (sum across visits). */
+    showingDurationMs: number;
+    /** Sum of inter-callback gaps that exceeded the tracking-loss threshold. */
+    trackingLossMs: number;
 }
 
 function median(values: number[]): number {
@@ -81,7 +102,8 @@ export function computeCellStats(
     screenW: number,
     screenH: number,
     pxPerDegree: number,
-    dwellMs: number
+    dwellMs: number,
+    runtime: RuntimeStats
 ): { cells: CellStats[]; overall: OverallStats } {
     const byCell = new Map<number, Sample[]>();
     for (const s of samples) {
@@ -122,6 +144,11 @@ export function computeCellStats(
     const hits = cells.filter(c => c.hit).length;
     const meanPx = allErrors.length ? allErrors.reduce((a, b) => a + b, 0) / allErrors.length : 0;
     const medianPx = median(allErrors);
+    const showingSec = runtime.showingDurationMs / 1000;
+    const sampleRateHz = showingSec > 0 ? runtime.rawSampleCount / showingSec : 0;
+    const trackingLossPct = runtime.showingDurationMs > 0
+        ? (runtime.trackingLossMs / runtime.showingDurationMs) * 100
+        : 0;
     const overall: OverallStats = {
         totalSamples: samples.length,
         cellsCovered: cells.length,
@@ -137,6 +164,8 @@ export function computeCellStats(
         gridRows: rows,
         gridCols: cols,
         dwellMs,
+        sampleRateHz,
+        trackingLossPct,
     };
     return { cells, overall };
 }
@@ -213,6 +242,8 @@ export function buildCsv(
         `# mean_error_deg,${overall.meanErrorDeg.toFixed(2)}`,
         `# median_error_deg,${overall.medianErrorDeg.toFixed(2)}`,
         `# hit_rate_pct,${overall.hitRatePct.toFixed(2)}`,
+        `# sample_rate_hz,${overall.sampleRateHz.toFixed(2)}`,
+        `# tracking_loss_pct,${overall.trackingLossPct.toFixed(2)}`,
     ].join('\n');
 
     return [

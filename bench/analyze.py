@@ -222,6 +222,12 @@ def summarize_csv(path: Path, dist_cm: float, dpi: float) -> None:
         print(f"  csv-header: mean = {meta['mean_error_deg']}°   "
               f"median = {meta.get('median_error_deg','?')}°   "
               f"hit-rate = {meta.get('hit_rate_pct','?')}%")
+    # Throughput + tracking-loss arrived in a later schema version, so guard
+    # the print so older CSVs don't get a noisy "— Hz / — %" line.
+    if "sample_rate_hz" in meta or "tracking_loss_pct" in meta:
+        rate = meta.get("sample_rate_hz", "—")
+        loss = meta.get("tracking_loss_pct", "—")
+        print(f"  throughput: {rate} Hz   tracking-loss = {loss}%")
 
     if is_drift and len(target_errs_px) >= 2:
         # Drift rate from per-target mean errors vs wall-clock.

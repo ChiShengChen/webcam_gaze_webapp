@@ -136,6 +136,12 @@ export function createOverlay(): OverlayHandles {
                 <div>samples logged<b id="sum-samples">—</b></div>
                 <div>px / degree<b id="sum-ppd">—</b></div>
             </div>
+            <div class="metrics">
+                <div>sample rate<b id="sum-rate">— Hz</b></div>
+                <div>tracking loss<b id="sum-loss">— %</b></div>
+                <div></div>
+                <div></div>
+            </div>
             <img id="sum-preview" class="preview" alt="gazemap preview" />
             <pre id="sum-diagnostics" class="diagnostics"></pre>
             <div id="sum-save-status" class="save-status">saving…</div>

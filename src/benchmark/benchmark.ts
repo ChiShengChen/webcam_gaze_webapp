@@ -113,6 +113,11 @@ export interface BenchmarkResult {
  */
 type Phase = 'showing' | 'idle';
 
+/** Inter-callback gap above this is counted as tracking loss. 200 ms ≈ 6
+ *  missed frames at 30 Hz inference — unambiguously a stall (face lost,
+ *  long blink, or pipeline overload), not normal frame timing. */
+const TRACKING_LOSS_GAP_MS = 200;
+
 export class Benchmark {
     private readonly cfg: BenchmarkConfig;
     private overlay: OverlayHandles | null = null;
@@ -132,6 +137,16 @@ export class Benchmark {
     private lastGaze: { x: number; y: number } | null = null;
     private lastState: 'FIXATION' | 'SACCADE' = 'SACCADE';
     private cellSampleCount = 0;
+    /** Raw gaze callbacks received during showing phase, BEFORE warmup +
+     *  fixation gating. Numerator for sample-rate (Hz). */
+    private rawSampleCount = 0;
+    /** Sum of inter-callback gaps that exceeded TRACKING_LOSS_GAP_MS during
+     *  showing phase. Numerator for tracking-loss percentage. */
+    private trackingLossMs = 0;
+    /** Wall-clock at most recent raw callback in the current showing phase;
+     *  reset on every phase transition into 'showing' so idle gaps don't
+     *  count as tracking loss. */
+    private lastRawSampleAtMs: number | null = null;
     private screenW = 0;
     private screenH = 0;
     private rafId = 0;
@@ -151,6 +166,17 @@ export class Benchmark {
             // user has settled (past warm-up) and the classifier says they
             // are fixating. Drift idle phase explicitly skips all logging.
             if (this.phase !== 'showing') return;
+
+            // Throughput + tracking-loss accounting happens BEFORE warmup /
+            // fixation filtering: we want to know how often the engine
+            // produced any prediction at all, not just the fixation ones.
+            this.rawSampleCount++;
+            if (this.lastRawSampleAtMs !== null) {
+                const gap = t - this.lastRawSampleAtMs;
+                if (gap > TRACKING_LOSS_GAP_MS) this.trackingLossMs += gap;
+            }
+            this.lastRawSampleAtMs = t;
+
             const inWarmup = (t - this.phaseStartMs) < this.cfg.warmupMs;
             if (inWarmup) return;
             if (this.cfg.requireFixation && state !== 'FIXATION') return;
@@ -176,6 +202,9 @@ export class Benchmark {
         this.cellIndex = this.cellOrder[0] ?? 0;
         this.phase = 'showing';
         this.phaseStartMs = performance.now();
+        this.rawSampleCount = 0;
+        this.trackingLossMs = 0;
+        this.lastRawSampleAtMs = null;
 
         this.overlay = createOverlay();
         this.overlay.root.classList.add('active');
@@ -320,9 +349,17 @@ export class Benchmark {
         this.phase = 'showing';
         this.phaseStartMs = now;
         this.cellSampleCount = 0;
+        // Reset the gap tracker — idle gaps must not be counted as tracking
+        // loss now that we are showing a new target.
+        this.lastRawSampleAtMs = null;
     }
 
     private finish(): void {
+        // Total showing-phase wall-clock is dwellMs × visits in expectation;
+        // the actual end-of-dwell can overshoot by a rAF frame so this is an
+        // upper bound. Good enough for the percentage denominator — the
+        // overshoot is ≤ 16 ms per visit, negligible vs dwell.
+        const showingDurationMs = this.cellOrder.length * this.cfg.dwellMs;
         const { cells, overall } = computeCellStats(
             this.samples,
             this.cfg.rows,
@@ -330,7 +367,12 @@ export class Benchmark {
             this.screenW,
             this.screenH,
             this.cfg.pxPerDegree,
-            this.cfg.dwellMs
+            this.cfg.dwellMs,
+            {
+                rawSampleCount: this.rawSampleCount,
+                showingDurationMs,
+                trackingLossMs: this.trackingLossMs,
+            }
         );
         const result: BenchmarkResult = {
             samples: this.samples,
@@ -397,6 +439,10 @@ export class Benchmark {
             String(result.overall.totalSamples);
         o.summary.querySelector('#sum-ppd')!.textContent =
             String(result.overall.pxPerDegree);
+        o.summary.querySelector('#sum-rate')!.textContent =
+            `${result.overall.sampleRateHz.toFixed(1)} Hz`;
+        o.summary.querySelector('#sum-loss')!.textContent =
+            `${result.overall.trackingLossPct.toFixed(1)} %`;
 
         // Populate diagnostics panel if the engine provided a dump.
         const diagEl = o.summary.querySelector<HTMLElement>('#sum-diagnostics');
