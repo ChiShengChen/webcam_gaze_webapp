@@ -1,5 +1,6 @@
 import { SAMModel, fallbackSegment } from './sam';
 import type { Mask } from './sam';
+import { GazeBuffer } from './gazeBuffer';
 
 // Types
 interface Label {
@@ -50,6 +51,7 @@ export class LabelMode {
     private currentImageId: number | null = null;
     private currentLabelId: number | null = null;
     private currentGazePosition: { x: number; y: number } | null = null;
+    private gazeBuffer = new GazeBuffer();
     
     private nextLabelId = 1;
     private nextAnnotationId = 1;
@@ -211,8 +213,9 @@ export class LabelMode {
         if (!image) return;
         
         this.currentImageId = imageId;
+        this.gazeBuffer.reset();
         this.updateImageList();
-        
+
         // Setup canvas
         this.imageCanvas.width = image.width;
         this.imageCanvas.height = image.height;
@@ -367,7 +370,16 @@ export class LabelMode {
                 x: x * scaleX,
                 y: y * scaleY
             };
-            
+
+            // Feed the rolling buffer that drives the heatmap-aggregated
+            // SAM prompt (out-of-bounds samples are dropped inside push()).
+            this.gazeBuffer.push(
+                this.currentGazePosition.x,
+                this.currentGazePosition.y,
+                this.imageCanvas.width,
+                this.imageCanvas.height,
+            );
+
             // Update cursor position
             this.gazeCursor.style.display = 'block';
             this.gazeCursor.style.left = `${x}px`;
@@ -397,26 +409,35 @@ export class LabelMode {
             console.log('Cannot segment: missing gaze position, label, or image');
             return;
         }
-        
+
+        // GazeMedSeg-style aggregation: a Gaussian heatmap over the last
+        // ~500 ms of in-bounds fixation samples, with the peak as the prompt
+        // point. Falls back to the raw last sample if the buffer hasn't
+        // accumulated enough dwell (< 50 ms) — typically right after image
+        // switch or after tracking loss.
+        const promptPoint =
+            this.gazeBuffer.computePrompt(this.imageCanvas.width, this.imageCanvas.height)
+            ?? this.currentGazePosition;
+
         this.onStatusChange('Segmenting...', 'loading');
-        
+
         try {
             let mask: Mask;
-            
+
             if (this.useFallback) {
                 // Use flood-fill fallback
                 const imageData = this.imageCtx.getImageData(
                     0, 0, this.imageCanvas.width, this.imageCanvas.height
                 );
-                mask = fallbackSegment(imageData, this.currentGazePosition, 32);
+                mask = fallbackSegment(imageData, promptPoint, 32);
             } else {
                 // Use SAM
                 const result = await this.sam.segment([{
-                    x: this.currentGazePosition.x,
-                    y: this.currentGazePosition.y,
+                    x: promptPoint.x,
+                    y: promptPoint.y,
                     label: 1 // foreground
                 }]);
-                
+
                 if (!result) {
                     throw new Error('Segmentation returned no result');
                 }
