@@ -46,7 +46,15 @@ const DEFAULT: EngineConfig = {
 
 const BLINK_EAR_THRESHOLD = 0.15;
 
-type GazeListener = (x: number, y: number) => void;
+/**
+ * Gaze listener — fires once per FaceMesh frame after the KRR is fitted.
+ *
+ * `captureTimeMs` is the rVFC `presentationTime` of the source frame, i.e.
+ * the closest-available "when the camera produced this pixel" timestamp.
+ * Downstream (GazeController → Benchmark) uses it to compute
+ * capture-to-display latency by diffing against the next rAF.
+ */
+type GazeListener = (x: number, y: number, captureTimeMs: number) => void;
 type FrameListener = (features: Features, timestamp: number) => void;
 
 interface CalibSample {
@@ -79,7 +87,11 @@ export class FaceMeshGazeEngine {
             for (const l of this.frameListeners) l(feats, r.timestamp);
             if (this.krr.isFitted) {
                 const p = this.krr.predict(feats.vector);
-                for (const l of this.gazeListeners) l(p.x, p.y);
+                // r.timestamp is the rVFC `presentationTime` of the source
+                // frame — the best-available "when did the camera capture
+                // this" timestamp. Forwarded so downstream can measure
+                // capture-to-display latency.
+                for (const l of this.gazeListeners) l(p.x, p.y, r.timestamp);
             }
         });
     }

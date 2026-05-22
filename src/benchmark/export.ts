@@ -66,6 +66,18 @@ export interface OverallStats {
     /** Percentage of showing-phase wall-clock with no gaze callback for
      *  > 200 ms (tracking-loss heuristic). 0 % is ideal. */
     trackingLossPct: number;
+    /** Inference latency = emit_time − capture_time (ms), per-sample
+     *  median and p95. Only meaningful when the engine exposes a real
+     *  capture clock (FaceMesh + rVFC). For WebGazer both numbers are
+     *  ≈ 0 because capture_time is faked equal to emit_time upstream. */
+    inferenceLatencyMedianMs: number;
+    inferenceLatencyP95Ms: number;
+    /** Full capture-to-display latency = paint_time − capture_time (ms),
+     *  per-sample median and p95. Includes inference + controller filter
+     *  + DOM update + browser composite. For WebGazer this collapses to
+     *  controller + DOM + composite only (no inference component). */
+    pipelineLatencyMedianMs: number;
+    pipelineLatencyP95Ms: number;
 }
 
 /** Engine-level run statistics gathered live and passed to computeCellStats
@@ -79,6 +91,10 @@ export interface RuntimeStats {
     showingDurationMs: number;
     /** Sum of inter-callback gaps that exceeded the tracking-loss threshold. */
     trackingLossMs: number;
+    /** Per-sample inference latency (ms) — emit_time minus capture_time. */
+    inferenceLatencyMs: number[];
+    /** Per-sample pipeline latency (ms) — paint_time minus capture_time. */
+    pipelineLatencyMs: number[];
 }
 
 function median(values: number[]): number {
@@ -166,6 +182,10 @@ export function computeCellStats(
         dwellMs,
         sampleRateHz,
         trackingLossPct,
+        inferenceLatencyMedianMs: median(runtime.inferenceLatencyMs),
+        inferenceLatencyP95Ms: percentile(runtime.inferenceLatencyMs, 95),
+        pipelineLatencyMedianMs: median(runtime.pipelineLatencyMs),
+        pipelineLatencyP95Ms: percentile(runtime.pipelineLatencyMs, 95),
     };
     return { cells, overall };
 }
@@ -244,6 +264,10 @@ export function buildCsv(
         `# hit_rate_pct,${overall.hitRatePct.toFixed(2)}`,
         `# sample_rate_hz,${overall.sampleRateHz.toFixed(2)}`,
         `# tracking_loss_pct,${overall.trackingLossPct.toFixed(2)}`,
+        `# inference_latency_median_ms,${overall.inferenceLatencyMedianMs.toFixed(2)}`,
+        `# inference_latency_p95_ms,${overall.inferenceLatencyP95Ms.toFixed(2)}`,
+        `# pipeline_latency_median_ms,${overall.pipelineLatencyMedianMs.toFixed(2)}`,
+        `# pipeline_latency_p95_ms,${overall.pipelineLatencyP95Ms.toFixed(2)}`,
     ].join('\n');
 
     return [

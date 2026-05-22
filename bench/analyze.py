@@ -349,6 +349,20 @@ def summarize_csv(path: Path, dist_cm: float, dpi: float) -> None:
         loss = meta.get("tracking_loss_pct", "—")
         print(f"  throughput: {rate} Hz   tracking-loss = {loss}%")
 
+    # Latency arrived later still. Inference latency is only meaningful for
+    # engines with a real capture clock (FaceMesh+rVFC); WebGazer fakes
+    # capture_time = emit_time upstream, so its inference number is ≈ 0 ms.
+    # Pipeline latency (paint − capture) is the e2e user-perceived number.
+    if "pipeline_latency_median_ms" in meta:
+        inf_med = meta.get("inference_latency_median_ms", "—")
+        inf_p95 = meta.get("inference_latency_p95_ms", "—")
+        pipe_med = meta.get("pipeline_latency_median_ms", "—")
+        pipe_p95 = meta.get("pipeline_latency_p95_ms", "—")
+        # Annotate WebGazer's inference number so readers don't misread it.
+        inf_note = "  (≈0 expected, no capture clock)" if pipeline == "webgazer" else ""
+        print(f"  latency:   inference  {inf_med} / p95 {inf_p95} ms{inf_note}")
+        print(f"             pipeline   {pipe_med} / p95 {pipe_p95} ms  (capture → paint)")
+
     # Velocity within fixations (jitter speed) — useful for spotting
     # pipelines that look accurate on the mean but bounce between samples.
     vstats = velocity_stats(velocity_streams, dist_cm, dpi)

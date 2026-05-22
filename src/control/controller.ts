@@ -44,11 +44,18 @@ const DEFAULT: ControllerConfig = {
 };
 
 type RawListener = (x: number, y: number, timestampMs: number) => void;
+/**
+ * `captureTimeMs` is the source-frame timestamp the engine fed in (rVFC
+ * presentationTime for FaceMesh; falls back to `timestampMs` for engines
+ * that don't expose a capture clock — e.g. WebGazer). Benchmark code diffs
+ * it against the next rAF to measure capture-to-display latency.
+ */
 type SnappedListener = (
     x: number,
     y: number,
     state: 'FIXATION' | 'SACCADE',
-    timestampMs: number
+    timestampMs: number,
+    captureTimeMs: number
 ) => void;
 type DwellListener = (ev: DwellClickEvent) => void;
 
@@ -82,8 +89,19 @@ export class GazeController {
         this.resetDwell();
     }
 
-    /** Feed one raw gaze sample. `timestampMs` = performance.now() or Date.now(). */
-    push(rawX: number, rawY: number, timestampMs: number): void {
+    /** Feed one raw gaze sample.
+     *
+     *  `timestampMs` is the engine's emission time (performance.now() at the
+     *  callback); `captureTimeMs` is the source-frame capture clock (rVFC
+     *  presentationTime for FaceMesh; engines without a capture clock should
+     *  pass `timestampMs` again as a best-effort fallback). The two values
+     *  bracket the engine's inference latency. */
+    push(
+        rawX: number,
+        rawY: number,
+        timestampMs: number,
+        captureTimeMs: number = timestampMs,
+    ): void {
         const tSec = timestampMs / 1000;
         const filtered = this.filter.filter(rawX, rawY, tSec);
         for (const l of this.rawListeners) l(filtered.x, filtered.y, timestampMs);
@@ -91,7 +109,7 @@ export class GazeController {
         const cls = this.ivt.feed(filtered.x, filtered.y, tSec);
         const centroid = cls.centroid ?? filtered;
         for (const l of this.snappedListeners) {
-            l(centroid.x, centroid.y, cls.state, timestampMs);
+            l(centroid.x, centroid.y, cls.state, timestampMs, captureTimeMs);
         }
 
         this.updateDwell(centroid.x, centroid.y, cls.state, timestampMs);

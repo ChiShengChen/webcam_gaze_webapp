@@ -65,8 +65,10 @@ const useCoach = useFaceMesh && urlParams.get('coach') !== '0';
 // Route both engines into the same controller. Done once at module scope
 // so re-calibration doesn't stack listeners.
 if (facemeshEngine) {
-    facemeshEngine.onGaze((x, y) => {
-        gazeController.push(x, y, performance.now());
+    facemeshEngine.onGaze((x, y, captureTimeMs) => {
+        // Engine surfaces the rVFC presentationTime so the controller +
+        // benchmark can compute true capture-to-display latency.
+        gazeController.push(x, y, performance.now(), captureTimeMs);
     });
 }
 

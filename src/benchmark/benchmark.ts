@@ -147,6 +147,21 @@ export class Benchmark {
      *  reset on every phase transition into 'showing' so idle gaps don't
      *  count as tracking loss. */
     private lastRawSampleAtMs: number | null = null;
+    /** Inference latency per emitted gaze (ms): emit_time − capture_time.
+     *  Meaningful for engines that expose a real capture clock
+     *  (FaceMesh+rVFC); falls back to ~0 for engines without one
+     *  (WebGazer — its capture time is faked equal to emit_time). */
+    private inferenceLatencyMs: number[] = [];
+    /** Full pipeline latency per emitted gaze (ms): paint_time − capture_time.
+     *  Measured by queueing each gaze event's capture time, then in the next
+     *  rAF reading the paint timestamp. Includes inference + controller
+     *  filtering + DOM update + browser composite. */
+    private pipelineLatencyMs: number[] = [];
+    /** Per-event capture times waiting for the next rAF to compute pipeline
+     *  latency. Drained in the rAF callback. */
+    private pendingCaptureTimes: number[] = [];
+    /** rAF handle for the latency monitor loop; cancelled on abort/finish. */
+    private latencyRafId: number | null = null;
     private screenW = 0;
     private screenH = 0;
     private rafId = 0;
@@ -157,7 +172,7 @@ export class Benchmark {
         this.cfg = { ...DEFAULT, ...cfg };
 
         // Register once. The listener is cheap when !running.
-        gazeController.onSnapped((x, y, state, t) => {
+        gazeController.onSnapped((x, y, state, t, captureTimeMs) => {
             if (!this.running) return;
             this.lastGaze = { x, y };
             this.lastState = state;
@@ -176,6 +191,15 @@ export class Benchmark {
                 if (gap > TRACKING_LOSS_GAP_MS) this.trackingLossMs += gap;
             }
             this.lastRawSampleAtMs = t;
+
+            // Inference latency = emit_time − capture_time (engine internal
+            // pipeline). For WebGazer, capture_time was faked equal to t
+            // upstream, so this is ~0 — the value is only meaningful for
+            // engines that expose a real capture clock (FaceMesh + rVFC).
+            this.inferenceLatencyMs.push(t - captureTimeMs);
+            // Pipeline latency is finished off in the rAF loop: queue this
+            // capture time and let the next paint timestamp close it out.
+            this.pendingCaptureTimes.push(captureTimeMs);
 
             const inWarmup = (t - this.phaseStartMs) < this.cfg.warmupMs;
             if (inWarmup) return;
@@ -205,6 +229,10 @@ export class Benchmark {
         this.rawSampleCount = 0;
         this.trackingLossMs = 0;
         this.lastRawSampleAtMs = null;
+        this.inferenceLatencyMs = [];
+        this.pipelineLatencyMs = [];
+        this.pendingCaptureTimes = [];
+        this.startLatencyMonitor();
 
         this.overlay = createOverlay();
         this.overlay.root.classList.add('active');
@@ -354,6 +382,32 @@ export class Benchmark {
         this.lastRawSampleAtMs = null;
     }
 
+    /**
+     * rAF-driven loop that closes out pipeline-latency measurements.
+     *
+     * Every onSnapped event pushes its capture time onto pendingCaptureTimes.
+     * The next paint (the rAF argument is the paint timestamp) drains the
+     * queue and computes `paint - capture` for each entry. This includes
+     * inference + filtering + DOM update + browser composite — i.e. the
+     * full capture-to-display latency reviewers want to see in §4.4.
+     *
+     * Runs even during idle phase (cheap, queue is empty then) so we don't
+     * have to coordinate start/stop with the main task loop.
+     */
+    private startLatencyMonitor(): void {
+        const tick = (paintTimeMs: number): void => {
+            if (!this.running) return;
+            if (this.pendingCaptureTimes.length > 0) {
+                for (const ct of this.pendingCaptureTimes) {
+                    this.pipelineLatencyMs.push(paintTimeMs - ct);
+                }
+                this.pendingCaptureTimes = [];
+            }
+            this.latencyRafId = requestAnimationFrame(tick);
+        };
+        this.latencyRafId = requestAnimationFrame(tick);
+    }
+
     private finish(): void {
         // Total showing-phase wall-clock is dwellMs × visits in expectation;
         // the actual end-of-dwell can overshoot by a rAF frame so this is an
@@ -372,6 +426,8 @@ export class Benchmark {
                 rawSampleCount: this.rawSampleCount,
                 showingDurationMs,
                 trackingLossMs: this.trackingLossMs,
+                inferenceLatencyMs: this.inferenceLatencyMs,
+                pipelineLatencyMs: this.pipelineLatencyMs,
             }
         );
         const result: BenchmarkResult = {
@@ -390,6 +446,10 @@ export class Benchmark {
     private stop(result: BenchmarkResult | null): void {
         this.running = false;
         if (this.rafId) cancelAnimationFrame(this.rafId);
+        if (this.latencyRafId !== null) {
+            cancelAnimationFrame(this.latencyRafId);
+            this.latencyRafId = null;
+        }
         if (this.resizeHandler) window.removeEventListener('resize', this.resizeHandler);
         this.resizeHandler = null;
 
@@ -443,6 +503,10 @@ export class Benchmark {
             `${result.overall.sampleRateHz.toFixed(1)} Hz`;
         o.summary.querySelector('#sum-loss')!.textContent =
             `${result.overall.trackingLossPct.toFixed(1)} %`;
+        o.summary.querySelector('#sum-lat-inf')!.textContent =
+            `${result.overall.inferenceLatencyMedianMs.toFixed(0)} / ${result.overall.inferenceLatencyP95Ms.toFixed(0)} ms`;
+        o.summary.querySelector('#sum-lat-pipe')!.textContent =
+            `${result.overall.pipelineLatencyMedianMs.toFixed(0)} / ${result.overall.pipelineLatencyP95Ms.toFixed(0)} ms`;
 
         // Populate diagnostics panel if the engine provided a dump.
         const diagEl = o.summary.querySelector<HTMLElement>('#sum-diagnostics');

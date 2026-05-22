@@ -139,8 +139,8 @@ export function createOverlay(): OverlayHandles {
             <div class="metrics">
                 <div>sample rate<b id="sum-rate">— Hz</b></div>
                 <div>tracking loss<b id="sum-loss">— %</b></div>
-                <div></div>
-                <div></div>
+                <div>inference latency<b id="sum-lat-inf">— ms</b></div>
+                <div>pipeline latency<b id="sum-lat-pipe">— ms</b></div>
             </div>
             <img id="sum-preview" class="preview" alt="gazemap preview" />
             <pre id="sum-diagnostics" class="diagnostics"></pre>
