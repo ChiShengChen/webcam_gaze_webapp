@@ -42,6 +42,90 @@ def px_to_deg(px: float, dist_cm: float, dpi: float) -> float:
     return math.degrees(math.atan2(cm, dist_cm))
 
 
+def region_label(x: float, y: float, screen_w: float, screen_h: float) -> str:
+    """Classify a target by spatial region using a 3×3 partition of the
+    viewport — corner / edge / center. Grid-agnostic on purpose (works for
+    any sweep grid shape and for drift's free-form target positions)."""
+    col_band = (
+        "left" if x < screen_w / 3 else
+        "right" if x >= 2 * screen_w / 3 else
+        "mid"
+    )
+    row_band = (
+        "top" if y < screen_h / 3 else
+        "bottom" if y >= 2 * screen_h / 3 else
+        "mid"
+    )
+    if row_band == "mid" and col_band == "mid":
+        return "center"
+    if row_band != "mid" and col_band != "mid":
+        return "corner"
+    return "edge"
+
+
+def velocity_stats(
+    per_target_streams: list[list[tuple[float, float, float]]],
+    dist_cm: float,
+    dpi: float,
+) -> dict[str, float] | None:
+    """Inter-sample velocity distribution in deg/s, computed within each
+    target's sample stream (never across targets — the saccade between
+    targets would dominate every percentile).
+
+    All our samples come from windows the I-VT classifier labelled
+    FIXATION, so the velocity here is *noise velocity inside a labelled
+    fixation*. High values mean the pipeline is bouncing the cursor
+    even when the user is holding still.
+
+    Returns None when there aren't enough sample pairs to be informative.
+    """
+    velocities: list[float] = []
+    for stream in per_target_streams:
+        for i in range(1, len(stream)):
+            t0, x0, y0 = stream[i - 1]
+            t1, x1, y1 = stream[i]
+            dt_s = (t1 - t0) / 1000.0
+            if dt_s <= 0:
+                continue
+            d_px = math.hypot(x1 - x0, y1 - y0)
+            v = px_to_deg(d_px, dist_cm, dpi) / dt_s
+            velocities.append(v)
+    if len(velocities) < 10:
+        return None
+    velocities.sort()
+    n = len(velocities)
+    return {
+        "median": velocities[n // 2],
+        "p95": velocities[min(n - 1, int(round(0.95 * (n - 1))))],
+        "p99": velocities[min(n - 1, int(round(0.99 * (n - 1))))],
+        "count": n,
+    }
+
+
+def print_region_breakdown(
+    per_target: list[tuple[float, float, float]],
+    screen_w: float, screen_h: float,
+    dist_cm: float, dpi: float,
+) -> None:
+    """Print mean angular error grouped by 3×3 region.
+    `per_target` items are (target_x, target_y, mean_error_px).
+    Per-target mean — each target weights equally regardless of sample count."""
+    buckets: dict[str, list[float]] = {"center": [], "edge": [], "corner": []}
+    for tx, ty, err_px in per_target:
+        buckets[region_label(tx, ty, screen_w, screen_h)].append(err_px)
+    parts: list[str] = []
+    # Stable order: center → edge → corner so the degradation gradient is
+    # visually obvious in the printout.
+    for name in ("center", "edge", "corner"):
+        errs = buckets[name]
+        if not errs:
+            parts.append(f"{name}=—")
+            continue
+        mean_px = statistics.fmean(errs)
+        parts.append(f"{name}={px_to_deg(mean_px, dist_cm, dpi):.2f}° (n={len(errs)})")
+    print(f"  region:    {'  '.join(parts)}")
+
+
 def summarize(log: dict, dist_cm: float, dpi: float) -> None:
     pipeline = log.get("pipeline", "?")
     notes = log.get("notes", "")
@@ -100,6 +184,34 @@ def summarize(log: dict, dist_cm: float, dpi: float) -> None:
         loss_pct = (1 - sample_ok / sample_total) * 100 if sample_total else 0
         print(f"  sample-loss: {loss_pct:.1f}% "
               f"({sample_total - sample_ok}/{sample_total})")
+
+        # Saccade-velocity distribution within fixations. Streams are
+        # (t_ms, x_px, y_px); the JSON's per-sample `t` is already in ms.
+        streams: list[list[tuple[float, float, float]]] = []
+        for tg in targets:
+            stream = [(s["t"], s["x"], s["y"]) for s in tg["samples"] if s["ok"]]
+            if len(stream) >= 2:
+                streams.append(stream)
+        vstats = velocity_stats(streams, dist_cm, dpi)
+        if vstats:
+            print(f"  velocity:  median = {vstats['median']:5.1f} °/s   "
+                  f"p95 = {vstats['p95']:6.1f} °/s   "
+                  f"p99 = {vstats['p99']:6.1f} °/s   "
+                  f"(n={vstats['count']})")
+
+        # Region breakdown: per-target mean error grouped by 3×3 viewport
+        # zone. Only useful when targets span the screen (sweep tasks);
+        # drift with 10 random targets typically has too few per zone.
+        per_target_region_input: list[tuple[float, float, float]] = [
+            (tg["x"], tg["y"], e)
+            for tg, e, _ in per_target if e is not None
+        ]
+        if per_target_region_input:
+            print_region_breakdown(
+                per_target_region_input,
+                log["screenW"], log["screenH"],
+                dist_cm, dpi,
+            )
 
         if name == "drift" and all_errors_px:
             # Linear fit: error_deg vs minutes-since-onset
@@ -180,7 +292,8 @@ def summarize_csv(path: Path, dist_cm: float, dpi: float) -> None:
           f"px/deg={meta.get('px_per_degree','?')}")
 
     # Per-target aggregation: group by cell_index → mean error per visit.
-    by_cell: dict[str, list[tuple[float, float, float, float]]] = {}
+    # Tuple layout: (t_ms, gaze_x, gaze_y, error_px, target_x, target_y).
+    by_cell: dict[str, list[tuple[float, float, float, float, float, float]]] = {}
     for r in rows:
         cell = r["cell_index"]
         by_cell.setdefault(cell, []).append((
@@ -188,11 +301,15 @@ def summarize_csv(path: Path, dist_cm: float, dpi: float) -> None:
             float(r["gaze_x"]),
             float(r["gaze_y"]),
             float(r["error_px"]),
+            float(r["target_x"]),
+            float(r["target_y"]),
         ))
 
     target_errs_px = []
     target_jitters_px = []
     target_onsets_ms = []
+    target_positions: list[tuple[float, float]] = []
+    velocity_streams: list[list[tuple[float, float, float]]] = []
     for cell, vals in by_cell.items():
         if not vals:
             continue
@@ -205,6 +322,9 @@ def summarize_csv(path: Path, dist_cm: float, dpi: float) -> None:
         jy = statistics.pstdev(ys) if len(ys) > 1 else 0.0
         target_jitters_px.append(math.hypot(jx, jy))
         target_onsets_ms.append(min(ts))
+        target_positions.append((vals[0][4], vals[0][5]))
+        if len(vals) >= 2:
+            velocity_streams.append([(t, x, y) for t, x, y, *_ in vals])
 
     if target_errs_px:
         mean_px = statistics.fmean(target_errs_px)
@@ -228,6 +348,30 @@ def summarize_csv(path: Path, dist_cm: float, dpi: float) -> None:
         rate = meta.get("sample_rate_hz", "—")
         loss = meta.get("tracking_loss_pct", "—")
         print(f"  throughput: {rate} Hz   tracking-loss = {loss}%")
+
+    # Velocity within fixations (jitter speed) — useful for spotting
+    # pipelines that look accurate on the mean but bounce between samples.
+    vstats = velocity_stats(velocity_streams, dist_cm, dpi)
+    if vstats:
+        print(f"  velocity:  median = {vstats['median']:5.1f} °/s   "
+              f"p95 = {vstats['p95']:6.1f} °/s   "
+              f"p99 = {vstats['p99']:6.1f} °/s   "
+              f"(n={vstats['count']})")
+
+    # Region breakdown using viewport partitioning. Falls back gracefully
+    # when the screen dimensions header is missing or unparseable.
+    try:
+        sw = float(meta.get("screen_width", "0"))
+        sh = float(meta.get("screen_height", "0"))
+    except ValueError:
+        sw = sh = 0.0
+    if sw > 0 and sh > 0 and target_errs_px:
+        per_target_region_input = [
+            (tx, ty, err) for (tx, ty), err in zip(target_positions, target_errs_px)
+        ]
+        print_region_breakdown(
+            per_target_region_input, sw, sh, dist_cm, dpi,
+        )
 
     if is_drift and len(target_errs_px) >= 2:
         # Drift rate from per-target mean errors vs wall-clock.
