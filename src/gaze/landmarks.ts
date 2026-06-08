@@ -76,6 +76,12 @@ export class FaceMeshEngine {
     private listeners: LandmarkListener[] = [];
     private latestResult: FaceLandmarks | null = null;
     private initPromise: Promise<void> | null = null;
+    /** FIFO queue of source-frame capture times (rVFC presentationTime),
+     *  pushed by `process()` and popped by `onResults`. Lets us report the
+     *  frame's true capture clock instead of `performance.now()` at the
+     *  moment FaceMesh finished — the latter collapses inference latency
+     *  to ~0 because emit time and "capture" time are then the same. */
+    private captureTimeQueue: number[] = [];
 
     async init(): Promise<void> {
         if (this.fm) return;
@@ -99,6 +105,12 @@ export class FaceMeshEngine {
             minTrackingConfidence: 0.5,
         });
         this.fm.onResults((results: FaceMeshResults) => {
+            // Pop a capture time UNCONDITIONALLY (before the no-face early
+            // return) so the queue stays in lockstep with rVFC pushes. If
+            // FaceMesh emitted no result for a queued frame the queue would
+            // grow forever otherwise.
+            const captureTime = this.captureTimeQueue.shift() ?? performance.now();
+
             const faces = results.multiFaceLandmarks;
             if (!faces || faces.length === 0 || !results.image) return;
             const w = (results.image as HTMLVideoElement).videoWidth
@@ -109,7 +121,7 @@ export class FaceMeshEngine {
                 points: faces[0].map(p => ({ x: p.x, y: p.y, z: p.z })),
                 imageWidth: w,
                 imageHeight: h,
-                timestamp: performance.now(),
+                timestamp: captureTime,
             };
             this.latestResult = out;
             for (const l of this.listeners) l(out);
@@ -118,8 +130,14 @@ export class FaceMeshEngine {
         if (this.fm.initialize) await this.fm.initialize();
     }
 
-    async process(video: HTMLVideoElement): Promise<void> {
+    async process(video: HTMLVideoElement, captureTimeMs?: number): Promise<void> {
         if (!this.fm) return;
+        if (captureTimeMs !== undefined) {
+            this.captureTimeQueue.push(captureTimeMs);
+            // Cap the queue so a face-detection failure streak (which would
+            // leave the queue un-popped) can't grow it without bound.
+            if (this.captureTimeQueue.length > 8) this.captureTimeQueue.shift();
+        }
         await this.fm.send({ image: video });
     }
 

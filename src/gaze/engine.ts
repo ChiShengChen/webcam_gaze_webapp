@@ -245,17 +245,32 @@ export class FaceMeshGazeEngine {
 
     // --- Internals ---
 
-    private loop = (): void => {
+    /**
+     * Frame loop. `presentationTime` (from the previous rVFC) is the source
+     * frame's capture clock — we forward it to `fm.process()` so the
+     * landmarks result is paired with the right capture time and
+     * downstream consumers (benchmark) can compute true inference latency.
+     *
+     * The first loop() call comes from start() before any rVFC has fired,
+     * so the initial capture time is null. After that every loop() is
+     * invoked from inside the rVFC callback with the just-arrived frame's
+     * presentationTime.
+     */
+    private loop = (presentationTimeMs: number | null = null): void => {
         if (!this.running || !this.video) return;
-        void this.fm.process(this.video);
+        void this.fm.process(this.video, presentationTimeMs ?? undefined);
         // requestVideoFrameCallback is ideal (runs exactly once per decoded
         // frame, skips duplicates), but is unavailable on older Safari. Fall
         // back to rAF there.
         const rVFC = (this.video as HTMLVideoElement & {
-            requestVideoFrameCallback?: (cb: () => void) => number;
+            requestVideoFrameCallback?: (
+                cb: (now: number, metadata: { presentationTime?: number }) => void,
+            ) => number;
         }).requestVideoFrameCallback;
         if (rVFC) {
-            this.loopHandle = rVFC.call(this.video, () => this.loop());
+            this.loopHandle = rVFC.call(this.video, (_now, metadata) => {
+                this.loop(metadata?.presentationTime ?? null);
+            });
         } else {
             this.loopHandle = requestAnimationFrame(() => this.loop());
         }
