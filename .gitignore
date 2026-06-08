@@ -25,3 +25,9 @@ dist-ssr
 
 # Reference papers / PDFs are research artifacts, not part of the repo
 *.pdf
+
+# Paper drafts kept local during double-blind review.
+# Remove these lines (and run `git add paper/`) after camera-ready / de-anon.
+paper/
+paper_overleaf/
+paper_overleaf.zip

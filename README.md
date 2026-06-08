@@ -300,6 +300,10 @@ WebGazer mode never shows the coach (it doesn't expose the landmarks the coach r
 
 Automatically on under `vite dev`. In production builds, append `?dev=1` to surface the "Run accuracy benchmark?" prompt after calibration completes. The benchmark is a 16×8 Z-pattern sweep (3 s dwell per cell, ≈ 6.4 min) that auto-saves CSV + gazemap PNG into `gaze_result/` under a mode-tagged filename.
 
+Per-sample CSV columns include `cell_row`, `cell_col`, `target_x/y`, `gaze_x/y`, `error_px`, plus `capture_time`, `emit_time`, and `paint_time` for end-to-end latency reconstruction. The footer summary records mean / median / p95 angular error, hit rate at 1.5 °, RMS jitter, sample rate, tracking-loss %, within-fixation saccade-velocity quantiles, per-region 3×3 breakdown, inference latency (capture→emit), pipeline latency (capture→display), and the run's `px_per_degree` / grid / dwell parameters. FaceMesh additionally logs KRR fit diagnostics (N, γ, λ, kernel, feature std layout).
+
+Capture clocks: FaceMesh uses an exact per-frame `requestVideoFrameCallback` pairing through [src/gaze/landmarks.ts](src/gaze/landmarks.ts); WebGazer uses an rVFC approximation tracked in [src/main.ts](src/main.ts) (`startWebgazerCaptureClock`) — its inference / pipeline latency numbers are a lower bound (the engine's true latency may be one or two video-frame intervals higher). On browsers without rVFC support, both engines fall back to `capture_time = emit_time` and the latency columns read ~0.
+
 ### Benchmark grid + duration — `?fast=` / `?rows=` / `?cols=` / `?dwell=`
 
 A full 16×8 × 3 s run takes ~6.4 minutes, which is too long for debug iterations. Shortcuts:
@@ -326,6 +330,18 @@ Two task modes share the same overlay, CSV format, and engine plumbing — pick 
 
 In drift mode the run-label gains a `_drift` suffix (e.g. `benchmark_facemesh_pursuit_drift_<ts>.csv`) so sweep and drift runs of the same pipeline land in distinct files.
 
+### Ablation knobs — `?onemin=` / `?onebeta=` / `?kernel=`
+
+§6 ablation surface for sweeping the parts of the v2 pipeline that don't have a principled default. All are passive — defaults stay the same when the flag is absent, so non-ablation runs reproduce the headline numbers in [gaze_result/RESULTS_2026-06-08.md](gaze_result/RESULTS_2026-06-08.md).
+
+| Flag | Default | Effect |
+|---|---|---|
+| `?onemin=F` | `1.0` | One-Euro `minCutoff` (low-cutoff frequency, Hz). |
+| `?onebeta=F` | `0.007` | One-Euro `beta` (speed-coefficient). Lower = more smoothing / more lag. |
+| `?kernel=K` | `rbf` | KRR kernel: `rbf` (default, non-linear), `linear` (collapses to ridge on the 13-dim feature space), or `poly2` (degree-2 polynomial, all pairwise feature products). FaceMesh only. |
+
+When any knob is off-default, an `_abl-<tags>` suffix is appended to the CSV / PNG filename (e.g. `benchmark_facemesh_pursuit_abl-oneB0.015_<ts>.csv`, `..._abl-k-linear_<ts>.csv`) so ablation runs don't overwrite baselines.
+
 ### Visual-angle readout — `?pxperdeg=N`
 
 Default `45` (≈ 14" laptop at arm's length). Tune to your geometry so the benchmark summary's degree readout matches your physical display — measure 1 cm on-screen at your viewing distance and divide by `tan(1°) ≈ 0.0175` to get your actual px/deg.
@@ -344,6 +360,19 @@ Runs end up in `gaze_result/benchmark_<mode>_<timestamp>.csv` + `gazemap_<mode>_
 
 The 2×2 of engine × calibration decomposes the v2 gain: going from row 1 to row 2 isolates the calibration-density contribution, row 1 to row 3 isolates the iris-feature contribution, and row 1 to row 4 is the stacked improvement plus the non-linear KRR head.
 
+### Benchmark analysis scripts — `bench/`
+
+Post-process CSVs from `gaze_result/` into the metrics and figures used in the paper. All scripts read the same header block (`px_per_degree`, grid shape, dwell, kernel, …) so debug and production runs are interchangeable.
+
+| Script | Output | Notes |
+|---|---|---|
+| [bench/analyze.py](bench/analyze.py) | Per-target mean / worst angular error, RMS jitter, hit rate, saccade-velocity quantiles, 3×3 region breakdown, drift slope (°/min) for `_drift` runs. | Reads both standalone-harness JSON (gaze_v2) and integrated benchmark CSVs (this repo). Auto-detects format by extension. |
+| [bench/heatmap.py](bench/heatmap.py) | Per-cell mean-error heatmap PNG next to each CSV. | `--vmax N` caps the colour scale (we use 20° for cross-engine comparability). Empty cells shaded grey — relevant for drift's random-subset visits. |
+| [bench/scatter_compare.py](bench/scatter_compare.py) | Side-by-side WebGazer / FaceMesh sample-scatter plot over a chosen rectangle of central cells. | Shows accuracy (centroid offset) and precision (radial p95 dashed circle) on one figure — the §5.4 accuracy / precision tradeoff visualised. |
+| [bench/ablation.py](bench/ablation.py) | Two-panel ablation figure: Pareto curve of accuracy vs within-fixation v_p99 across One-Euro β values, plus per-kernel bar chart. | Reads files via the `_abl-<tag>_` filename pattern emitted by the URL knobs above. |
+
+The most recent paper-matrix session, including the §5.3 cross-engine results and the §6 ablation runs, is written up in [gaze_result/RESULTS_2026-06-08.md](gaze_result/RESULTS_2026-06-08.md).
+
 ## Tips for Better Accuracy
 
 - Ensure good lighting on your face
@@ -356,9 +385,11 @@ The 2×2 of engine × calibration decomposes the v2 gain: going from row 1 to ro
 
 - [Vite](https://vitejs.dev/) - Build tool and dev server
 - [TypeScript](https://www.typescriptlang.org/) - Type-safe JavaScript
-- [WebGazer.js](https://webgazer.cs.brown.edu/) ([GitHub](https://github.com/brownhci/WebGazer)) - Eye tracking library by Brown HCI
-- [ONNX Runtime Web](https://onnxruntime.ai/) - Browser-based ML inference
+- [WebGazer.js](https://webgazer.cs.brown.edu/) ([GitHub](https://github.com/brownhci/WebGazer)) - Baseline (v1) eye tracking library by Brown HCI
+- [MediaPipe FaceMesh](https://github.com/google/mediapipe) - 478-landmark face + iris model used as direct input to the v2 FaceMesh+KRR engine (`?engine=facemesh`)
+- [ONNX Runtime Web](https://onnxruntime.ai/) - Browser-based ML inference (SAM)
 - [MobileSAM](https://github.com/ChaoningZhang/MobileSAM) - Lightweight SAM model for segmentation
+- [One-Euro Filter](https://gery.casiez.net/1euro/) - Adaptive low-pass for cursor smoothing in the gaze controller
 
 ## How It Works
 
@@ -624,18 +655,43 @@ The I-DT (Dispersion-Threshold Identification) algorithm:
 
 ```
 webcam_gaze_webapp/
-├── index.html          # Main HTML file
+├── index.html                # Main HTML file
+├── benchmark.html            # Standalone v1 benchmark harness page
 ├── src/
-│   ├── main.ts         # Application entry & mode switching
-│   ├── labelMode.ts    # Label mode logic & UI
-│   ├── videoMode.ts    # Video annotation mode logic & UI
-│   ├── gazeAnalysis.ts # Fixation detection & analysis metrics
-│   ├── sam.ts          # SAM model integration
-│   ├── style.css       # Styles
-│   └── webgazer.d.ts   # TypeScript declarations
-├── assets/
-│   ├── demo.mp4        # Gaze tracker demo
-│   └── demo_label_mode.mp4  # Label mode demo
+│   ├── main.ts               # Application entry, mode switching, URL flags
+│   ├── labelMode.ts          # Label mode logic & UI
+│   ├── videoMode.ts          # Video annotation mode logic & UI
+│   ├── gazeAnalysis.ts       # Fixation detection (I-DT) & analysis metrics
+│   ├── sam.ts                # SAM model integration
+│   ├── gaze/                 # v2 FaceMesh+KRR engine
+│   │   ├── engine.ts         # Orchestrates landmarks → features → regression
+│   │   ├── landmarks.ts      # MediaPipe FaceMesh + rVFC capture clock
+│   │   ├── features.ts       # 13-dim hand-crafted feature vector
+│   │   └── regression.ts     # Kernel ridge regression (rbf / linear / poly2)
+│   ├── calibration/
+│   │   ├── smoothPursuit.ts  # Lissajous pursuit calibration (~500 samples)
+│   │   └── coach.ts          # Pre-calibration positioning quality gate
+│   ├── control/
+│   │   ├── controller.ts     # Raw / smoothed / snapped gaze stream
+│   │   ├── oneEuroFilter.ts  # Adaptive low-pass for cursor smoothing
+│   │   ├── fixationClassifier.ts  # I-VT classifier for dwell-click
+│   │   └── snapping.ts       # Magnetic-snap to UI targets
+│   ├── benchmark/
+│   │   ├── benchmark.ts      # Sweep / drift task runner
+│   │   ├── overlay.ts        # Target dot + progress overlay
+│   │   └── export.ts         # CSV writer + summary stats
+│   ├── bench/protocol.ts     # Shared sweep / drift protocol definitions
+│   ├── blinkDetector.ts      # EAR-based blink detection
+│   └── style.css             # Styles
+├── bench/                    # Post-hoc analysis scripts (Python)
+│   ├── analyze.py            # Headline metrics from CSV / JSON
+│   ├── heatmap.py            # Per-cell error heatmap PNGs
+│   ├── scatter_compare.py    # WebGazer vs FaceMesh sample-scatter figure
+│   └── ablation.py           # One-Euro β + KRR kernel ablation figure
+├── gaze_v2/                  # Standalone v2 harness (separate dev server)
+├── gaze_result/              # Auto-saved benchmark CSVs + gazemap PNGs
+├── paper/, paper_overleaf/   # MICCAI workshop paper draft
+├── PAPER_PLAN.md             # Living paper-planning doc
 ├── package.json
 └── tsconfig.json
 ```
@@ -648,9 +704,105 @@ npm run build
 
 The built files will be in the `dist/` directory.
 
+## Reproducing the GazeLab paper
+
+Beyond the WebGazer-based application above, this repository also
+backs an open browser-gaze **benchmark harness** and a new
+**FaceMesh + KRR** gaze pipeline. The paper that describes the
+methodology and reports the empirical findings lives at
+[paper/gazelab_neurips.tex](paper/gazelab_neurips.tex); a packaged
+Overleaf-ready bundle is at `paper_overleaf/`.
+
+### What the paper claims (3-bullet summary)
+
+1. **Capture-clock methodology** — measuring browser-gaze inference
+   latency honestly via `requestVideoFrameCallback`
+   `presentationTime`, with exact pairing for queue-exposing engines
+   and a verifiable lower bound for opaque ones (such as WebGazer).
+2. **Open reference implementation** — this repo, demonstrating the
+   methodology on two interchangeable engines (WebGazer baseline +
+   our FaceMesh + KRR pipeline) and an analysis suite
+   (per-cell heatmaps, 3×3 region partition, within-fixation
+   velocity, drift slope).
+3. **Empirical payoff (single user, N=1)** — a 20–50 ms gap between
+   the inference-latency a naive timestamp reports (≈0 ms) and the
+   honest measurement (22–34 ms median); plus a conceptual split
+   between spatial-spread and temporal-jitter precision that
+   aggregate metrics conflate. Cross-engine accuracy differences
+   are reported as worked examples; the harness's own β-ablation
+   surfaces a ~7° single-session noise floor that bounds the
+   claimable engine ranking at N=1.
+
+### Where the artefacts live
+
+| Artefact | Location |
+|---|---|
+| Reference SPA source | [`src/`](src/) |
+| FaceMesh + KRR engine | [`src/gaze/`](src/gaze/) (`engine.ts`, `regression.ts`, `features.ts`, `landmarks.ts`) |
+| Benchmark harness | [`src/benchmark/`](src/benchmark/) |
+| One-Euro filter / I-VT classifier / controller | [`src/control/`](src/control/) |
+| Per-sample CSV logs (all reported runs) | [`gaze_result/`](gaze_result/) |
+| Analysis scripts (Python) | [`bench/`](bench/) — `analyze.py`, `heatmap.py`, `scatter_compare.py`, `ablation.py` |
+| Master results document | [`gaze_result/RESULTS_2026-06-08.md`](gaze_result/RESULTS_2026-06-08.md) |
+| Paper bundle (LaTeX + figures) | [`paper_overleaf/`](paper_overleaf/) |
+
+### Reproducing the paper figures and table
+
+The 4-run paper matrix (sweep + drift × WebGazer + FaceMesh) and the
+5-run §6 ablation (One-Euro β sweep + KRR kernel sweep) take ~90 min
+of in-browser data collection. The exact URL queries are:
+
+```
+# §5 paper matrix
+/?engine=webgazer&calib=pursuit&task=sweep                  # ~6 min
+/?engine=facemesh&task=sweep                                # ~6 min
+/?engine=webgazer&calib=pursuit&task=drift&visits=10        # ~5 min
+/?engine=facemesh&task=drift&visits=10                      # ~5 min
+
+# §6 ablation (FaceMesh + sweep only)
+/?engine=facemesh&task=sweep&onebeta=0.003                  # ~6 min
+/?engine=facemesh&task=sweep&onebeta=0.015                  # ~6 min
+/?engine=facemesh&task=sweep&onebeta=0.030                  # ~6 min
+/?engine=facemesh&task=sweep&kernel=linear                  # ~6 min
+/?engine=facemesh&task=sweep&kernel=poly2                   # ~6 min
+```
+
+Each run writes a CSV + gazemap PNG to `gaze_result/`. Once collected:
+
+```bash
+# Per-engine analysis (region partition, velocity, drift slope)
+python3 bench/analyze.py --dist-cm 60 --dpi 110 \
+    gaze_result/benchmark_*_2026-06-08-*.csv
+
+# Per-cell heatmaps (Fig 4 in paper)
+python3 bench/heatmap.py --vmax 20 \
+    gaze_result/benchmark_*_pursuit_2026-06-08-*.csv
+
+# Scatter-compare (Fig 5 in paper, sweep central cells)
+python3 bench/scatter_compare.py \
+    gaze_result/benchmark_webgazer_pursuit_2026-06-08-04-47-22.csv \
+    gaze_result/benchmark_facemesh_pursuit_2026-06-08-04-55-19.csv \
+    --rows 2-4 --cols 6-10 --axis-deg 20 \
+    --out paper/figures/scatter_compare.png
+
+# §6 ablation aggregator (Fig 6)
+python3 bench/ablation.py \
+    --baseline gaze_result/benchmark_facemesh_pursuit_2026-06-08-04-55-19.csv \
+    --abl-dir  gaze_result \
+    --out      paper/figures/ablation.png
+```
+
+To reproduce the headline table from the already-released CSVs
+without re-running the in-browser benchmark, only the Python
+scripts are needed; analysis time is under 30 s on commodity
+hardware.
+
 ## License
 
-MIT
+This project is released under the [MIT License](LICENSE). It
+bundles WebGazer.js (Apache 2.0) and MediaPipe FaceMesh
+(Apache 2.0); both upstream licenses are preserved in their
+respective `node_modules/` directories.
 
 ---
 
