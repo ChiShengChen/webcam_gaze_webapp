@@ -8,6 +8,23 @@ Built with WebGazer.js, ONNX Runtime Web, and Vite.
 
 ## Demo
 
+### Benchmark evaluation (paper §5)
+
+<video src="assets/benchmark_2026-06-08_compressed.mp4" controls width="600"></video>
+
+> *Live screen capture of a benchmark sweep run: yellow target dots
+> step through the 16×8 grid, the red gaze cursor follows, and the
+> harness logs per-sample CSV / mean error / hit rate / inference
+> latency / heatmap. Used to produce the data in §5 of the
+> [accompanying paper](#reproducing-the-gazelab-paper).*
+
+> If the inline video does not render on your GitHub view, the
+> compressed file is at
+> [`assets/benchmark_2026-06-08_compressed.mp4`](assets/benchmark_2026-06-08_compressed.mp4)
+> (download to play). For best inline rendering on github.com, replace
+> the `<video>` tag above with a drag-and-drop upload via the README
+> editor.
+
 ### Gaze Tracker
 
 
