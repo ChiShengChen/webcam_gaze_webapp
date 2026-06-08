@@ -18,12 +18,11 @@ Built with WebGazer.js, ONNX Runtime Web, and Vite.
 > latency / heatmap. Used to produce the data in §5 of the
 > [accompanying paper](#reproducing-the-gazelab-paper).*
 
-> If the inline video does not render on your GitHub view, the
-> compressed file is at
-> [`assets/benchmark_2026-06-08_compressed.mp4`](assets/benchmark_2026-06-08_compressed.mp4)
-> (download to play). For best inline rendering on github.com, replace
-> the `<video>` tag above with a drag-and-drop upload via the README
-> editor.
+
+
+https://github.com/user-attachments/assets/1135aac6-d071-4312-a078-4710ddfda6d0
+
+
 
 ### Gaze Tracker
 
