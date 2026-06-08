@@ -386,17 +386,27 @@ export class Benchmark {
      * rAF-driven loop that closes out pipeline-latency measurements.
      *
      * Every onSnapped event pushes its capture time onto pendingCaptureTimes.
-     * The next paint (the rAF argument is the paint timestamp) drains the
-     * queue and computes `paint - capture` for each entry. This includes
-     * inference + filtering + DOM update + browser composite — i.e. the
-     * full capture-to-display latency reviewers want to see in §4.4.
+     * The next paint drains the queue and computes `paint - capture` for
+     * each entry. This includes inference + filtering + DOM update + browser
+     * composite — i.e. the full capture-to-display latency reviewers want
+     * to see in §4.4.
+     *
+     * **Time-source note**: rAF's callback argument is the *vsync timestamp*
+     * (start-of-frame), which can be EARLIER than events processed later in
+     * the same task queue but before the rAF callback runs. Using it
+     * directly produced negative latencies (vsync < captureTime when
+     * WebGazer fired mid-frame). We use `performance.now()` inside the
+     * callback instead — it samples when the rAF callback actually executes,
+     * which is at the start of the layout/paint pass and is guaranteed to
+     * be after any queued events from this frame.
      *
      * Runs even during idle phase (cheap, queue is empty then) so we don't
      * have to coordinate start/stop with the main task loop.
      */
     private startLatencyMonitor(): void {
-        const tick = (paintTimeMs: number): void => {
+        const tick = (): void => {
             if (!this.running) return;
+            const paintTimeMs = performance.now();
             if (this.pendingCaptureTimes.length > 0) {
                 for (const ct of this.pendingCaptureTimes) {
                     this.pipelineLatencyMs.push(paintTimeMs - ct);
