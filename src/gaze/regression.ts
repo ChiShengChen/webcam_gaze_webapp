@@ -74,6 +74,37 @@ function sqEuclid(a: number[], b: number[]): number {
     return s;
 }
 
+function dot(a: number[], b: number[]): number {
+    let s = 0;
+    for (let i = 0; i < a.length; i++) s += a[i] * b[i];
+    return s;
+}
+
+/** Kernel switch for the §6 ablation. Three options:
+ *
+ *   - 'rbf'    K(a,b) = exp(-γ ||a−b||²)          (default, non-linear)
+ *   - 'linear' K(a,b) = a·b                       (KRR collapses to ridge)
+ *   - 'poly2'  K(a,b) = (a·b + 1)²                (degree-2 polynomial,
+ *                                                  finite-dim feature
+ *                                                  expansion incl. all
+ *                                                  pairwise products)
+ *
+ * γ is only meaningful for 'rbf'. The 'linear' option exists to isolate
+ * the non-linear gain — a fair comparison against WebGazer's ridge head
+ * on our 13-dim feature space, controlling for everything else
+ * (preprocessing, target centring, KRR solver).
+ */
+export type KernelType = 'rbf' | 'linear' | 'poly2';
+
+function makeKernel(kind: KernelType, gamma: number):
+        (a: number[], b: number[]) => number {
+    switch (kind) {
+        case 'rbf':    return (a, b) => Math.exp(-gamma * sqEuclid(a, b));
+        case 'linear': return (a, b) => dot(a, b);
+        case 'poly2':  return (a, b) => { const d = dot(a, b) + 1; return d * d; };
+    }
+}
+
 /** Median of pairwise squared distances — canonical γ heuristic for RBF. */
 export function medianHeuristicGamma(X: number[][]): number {
     const n = X.length;
@@ -93,12 +124,16 @@ export function medianHeuristicGamma(X: number[][]): number {
 export interface KrrConfig {
     gamma?: number;
     lambda: number;
+    /** Default 'rbf'. See KernelType doc for the alternatives. */
+    kernel?: KernelType;
 }
 
 export class KernelRidgeRegression {
     private alpha: number[] = [];
     private supports: number[][] = [];
     private gamma = 1;
+    private kernelKind: KernelType = 'rbf';
+    private kFn: (a: number[], b: number[]) => number = () => 0;
     private fitted = false;
 
     fit(X: number[][], y: number[], cfg: KrrConfig): void {
@@ -107,12 +142,14 @@ export class KernelRidgeRegression {
         if (n === 0) throw new Error('KRR: empty training set');
 
         this.gamma = cfg.gamma ?? medianHeuristicGamma(X);
+        this.kernelKind = cfg.kernel ?? 'rbf';
+        this.kFn = makeKernel(this.kernelKind, this.gamma);
         this.supports = X.map(row => row.slice());
 
         const A: number[][] = Array.from({ length: n }, () => new Array(n).fill(0));
         for (let i = 0; i < n; i++) {
             for (let j = 0; j <= i; j++) {
-                const k = Math.exp(-this.gamma * sqEuclid(X[i], X[j]));
+                const k = this.kFn(X[i], X[j]);
                 A[i][j] = A[j][i] = k;
             }
             A[i][i] += cfg.lambda;
@@ -125,7 +162,7 @@ export class KernelRidgeRegression {
         if (!this.fitted) return 0;
         let sum = 0;
         for (let i = 0; i < this.supports.length; i++) {
-            sum += this.alpha[i] * Math.exp(-this.gamma * sqEuclid(this.supports[i], x));
+            sum += this.alpha[i] * this.kFn(this.supports[i], x);
         }
         return sum;
     }
@@ -166,6 +203,7 @@ export class GazeKRR {
     private _fitted = false;
     private _gamma = 0;
     private _lambda = 0;
+    private _kernel: KernelType = 'rbf';
     private _lastDiagnostics = '';
     private _rawStds: number[] = [];
     private featMean: number[] = [];
@@ -173,7 +211,8 @@ export class GazeKRR {
     private targetMeanX = 0;
     private targetMeanY = 0;
 
-    fit(features: number[][], targets: { x: number; y: number }[], lambda = 1e-2): void {
+    fit(features: number[][], targets: { x: number; y: number }[],
+        lambda = 1e-2, kernel: KernelType = 'rbf'): void {
         if (features.length !== targets.length) {
             throw new Error('GazeKRR: features/targets length mismatch');
         }
@@ -225,14 +264,15 @@ export class GazeKRR {
         const yy = targets.map(t => t.y - this.targetMeanY);
 
         const gamma = medianHeuristicGamma(Xstd);
-        this.rx.fit(Xstd, yx, { gamma, lambda });
-        this.ry.fit(Xstd, yy, { gamma, lambda });
+        this.rx.fit(Xstd, yx, { gamma, lambda, kernel });
+        this.ry.fit(Xstd, yy, { gamma, lambda, kernel });
         this._fitted = true;
         this._gamma = gamma;
         this._lambda = lambda;
+        this._kernel = kernel;
         this._rawStds = rawStds;
         this._lastDiagnostics =
-            `N=${features.length}  γ=${gamma.toExponential(2)}  λ=${lambda.toExponential(1)}\n` +
+            `N=${features.length}  kernel=${kernel}  γ=${gamma.toExponential(2)}  λ=${lambda.toExponential(1)}\n` +
             `feature raw std: [${rawStds.map(v => v.toFixed(4)).join(', ')}]\n` +
             `feature after floor (${STD_FLOOR}): [${this.featStd.map(v => v.toFixed(4)).join(', ')}]\n` +
             `target mean: (${this.targetMeanX.toFixed(0)}, ${this.targetMeanY.toFixed(0)})`;
@@ -259,8 +299,8 @@ export class GazeKRR {
         return this._fitted;
     }
 
-    get stats(): { gamma: number; support: number } {
-        return { gamma: this._gamma, support: this.rx.supportCount };
+    get stats(): { gamma: number; support: number; kernel: KernelType } {
+        return { gamma: this._gamma, support: this.rx.supportCount, kernel: this._kernel };
     }
 
     /** Human-readable fit diagnostics, populated on the last fit().

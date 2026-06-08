@@ -30,8 +30,30 @@ const CLICKS_PER_DOT = 5;
 // instantaneous speed), and the controller exposes raw/snapped/dwell_click
 // streams so each consumer can pick what fits (heatmap wants raw, cursor
 // wants snapped, dwell-click wires gaze targets to synthetic events).
+//
+// One-Euro params overridable via URL for the §6 ablation:
+//   ?onemin=1.5     -> set minCutoff (default 1.0)
+//   ?onebeta=0.015  -> set beta      (default 0.007)
+// Missing key / non-finite / non-positive values fall back to the
+// default. We check the raw string for null before Number()'ing it
+// because Number(null) silently returns 0, which passes the v>=0
+// check below and would emit a spurious 'oneB0' suffix in the run
+// label even when ?onebeta was absent — the kernel-ablation runs of
+// 2026-06-08 carry this artefact in their filenames.
+const ablOneEuroMin = (() => {
+    const raw = new URLSearchParams(window.location.search).get('onemin');
+    if (raw === null) return 1.0;
+    const v = Number(raw);
+    return Number.isFinite(v) && v > 0 ? v : 1.0;
+})();
+const ablOneEuroBeta = (() => {
+    const raw = new URLSearchParams(window.location.search).get('onebeta');
+    if (raw === null) return 0.007;
+    const v = Number(raw);
+    return Number.isFinite(v) && v > 0 ? v : 0.007;
+})();
 const gazeController = new GazeController({
-    oneEuro: { minCutoff: 1.0, beta: 0.007 },
+    oneEuro: { minCutoff: ablOneEuroMin, beta: ablOneEuroBeta },
 });
 const snapStrength = new SnapStrength(120);
 
@@ -46,7 +68,19 @@ const devMode = import.meta.env.DEV || urlParams.has('dev');
 // gives the regression head iris landmarks directly instead of raw eye
 // pixel patches, which is the single biggest input upgrade we can make.
 const useFaceMesh = urlParams.get('engine') === 'facemesh';
-const facemeshEngine: FaceMeshGazeEngine | null = useFaceMesh ? new FaceMeshGazeEngine() : null;
+
+// KRR kernel choice overridable via URL for the §6 ablation:
+//   ?kernel=rbf     -> default, non-linear
+//   ?kernel=linear  -> KRR collapses to ridge on the 13-dim feature space
+//   ?kernel=poly2   -> degree-2 polynomial (all pairwise feature products)
+// Anything else falls back to 'rbf'. Only meaningful in FaceMesh mode.
+const ablKernel = ((): 'rbf' | 'linear' | 'poly2' => {
+    const v = urlParams.get('kernel');
+    return v === 'linear' || v === 'poly2' ? v : 'rbf';
+})();
+const facemeshEngine: FaceMeshGazeEngine | null = useFaceMesh
+    ? new FaceMeshGazeEngine({ kernel: ablKernel })
+    : null;
 
 // Calibration method. Smooth-pursuit (~500 samples over 18 s) is the
 // default for FaceMesh so the KRR head has enough data to shape a real
@@ -70,6 +104,39 @@ if (facemeshEngine) {
         // benchmark can compute true capture-to-display latency.
         gazeController.push(x, y, performance.now(), captureTimeMs);
     });
+}
+
+// WebGazer's API doesn't expose a per-frame capture clock, so we run our
+// own requestVideoFrameCallback loop on its internal <video> and use the
+// most-recently-presented frame's presentationTime as the capture time
+// when a gaze sample emits. The pairing isn't exact (WebGazer's internal
+// queue depth is opaque, so the real source frame may be one or two
+// frames older), but it bounds inference latency from below — far better
+// than reporting 0 ms. rVFC is unavailable on older Safari; callers fall
+// back to performance.now() there and the inference-latency column reads
+// ~0, matching the pre-fix behaviour.
+let latestWebgazerFrameTimeMs: number | null = null;
+function startWebgazerCaptureClock(): void {
+    const video = document.getElementById(
+        'webgazerVideoFeed',
+    ) as HTMLVideoElement | null;
+    if (!video) return;
+    const rVFC = (video as HTMLVideoElement & {
+        requestVideoFrameCallback?: (
+            cb: (now: number, metadata: { presentationTime?: number }) => void,
+        ) => number;
+    }).requestVideoFrameCallback;
+    if (!rVFC) return;
+    const tick = (
+        _now: number,
+        metadata: { presentationTime?: number },
+    ): void => {
+        if (metadata?.presentationTime != null) {
+            latestWebgazerFrameTimeMs = metadata.presentationTime;
+        }
+        rVFC.call(video, tick);
+    };
+    rVFC.call(video, tick);
 }
 
 // FaceMesh mode runs without WebGazer's built-in preview canvas, so we
@@ -184,7 +251,14 @@ const runLabel = (() => {
     const calib = useSmoothPursuit ? 'pursuit' : '9point';
     const coachTag = (useFaceMesh && !useCoach) ? '-nocoach' : '';
     const taskTag = taskMode === 'drift' ? '_drift' : '';
-    return `${engine}_${calib}${coachTag}${taskTag}`;
+    // Ablation suffix: only appended when at least one knob is off-default,
+    // so non-ablation runs keep producing the same filenames as before.
+    const ablTags: string[] = [];
+    if (ablOneEuroMin !== 1.0) ablTags.push(`oneM${ablOneEuroMin}`);
+    if (ablOneEuroBeta !== 0.007) ablTags.push(`oneB${ablOneEuroBeta}`);
+    if (ablKernel !== 'rbf') ablTags.push(`k-${ablKernel}`);
+    const ablTag = ablTags.length ? `_abl-${ablTags.join('-')}` : '';
+    return `${engine}_${calib}${coachTag}${taskTag}${ablTag}`;
 })();
 
 const benchmark = new Benchmark(gazeController, {
@@ -558,7 +632,10 @@ window.onload = function() {
 
         webgazer.setGazeListener((data, _elapsedTime) => {
             if (data == null) return;
-            gazeController.push(data.x, data.y, performance.now());
+            // captureTime ≈ most recent rVFC presentationTime; see
+            // startWebgazerCaptureClock for the approximation contract.
+            const captureTime = latestWebgazerFrameTimeMs ?? performance.now();
+            gazeController.push(data.x, data.y, performance.now(), captureTime);
             if (data.eyeFeatures) {
                 blinkDetector.processEyePatches(
                     data.eyeFeatures.left?.patch ?? null,
@@ -832,6 +909,12 @@ window.onload = function() {
                 }
             } else {
                 await webgazer.begin();
+                // Begin tracking rVFC presentationTime on WebGazer's video
+                // element so gaze samples can be tagged with a real capture
+                // clock instead of falling back to emit-time. Must run after
+                // webgazer.begin() resolves — that's when the <video> element
+                // exists in the DOM.
+                startWebgazerCaptureClock();
                 webgazer.showVideoPreview(true);
                 webgazer.showPredictionPoints(false);
                 webgazer.applyKalmanFilter(true);

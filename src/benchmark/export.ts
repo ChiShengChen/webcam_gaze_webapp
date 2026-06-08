@@ -67,15 +67,23 @@ export interface OverallStats {
      *  > 200 ms (tracking-loss heuristic). 0 % is ideal. */
     trackingLossPct: number;
     /** Inference latency = emit_time − capture_time (ms), per-sample
-     *  median and p95. Only meaningful when the engine exposes a real
-     *  capture clock (FaceMesh + rVFC). For WebGazer both numbers are
-     *  ≈ 0 because capture_time is faked equal to emit_time upstream. */
+     *  median and p95. FaceMesh sources capture_time from rVFC
+     *  presentationTime via a per-frame queue (exact pairing). WebGazer
+     *  approximates: a parallel rVFC loop on its <video> element tracks
+     *  the most recently presented frame, and gaze samples use that
+     *  presentationTime as capture_time. WebGazer's internal queue depth
+     *  is opaque, so the real source frame may be one or two frames
+     *  older — the reported number is a lower bound on the engine's true
+     *  inference time. On browsers without rVFC support (older Safari)
+     *  both engines fall back to capture_time = emit_time and the column
+     *  reads ~0. */
     inferenceLatencyMedianMs: number;
     inferenceLatencyP95Ms: number;
     /** Full capture-to-display latency = paint_time − capture_time (ms),
      *  per-sample median and p95. Includes inference + controller filter
-     *  + DOM update + browser composite. For WebGazer this collapses to
-     *  controller + DOM + composite only (no inference component). */
+     *  + DOM update + browser composite. Same capture_time source as
+     *  inferenceLatency above, so the WebGazer approximation caveat
+     *  applies here too. */
     pipelineLatencyMedianMs: number;
     pipelineLatencyP95Ms: number;
 }

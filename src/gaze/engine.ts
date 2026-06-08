@@ -14,7 +14,7 @@
 
 import { FaceMeshEngine } from './landmarks';
 import { extractFeatures, type Features } from './features';
-import { GazeKRR } from './regression';
+import { GazeKRR, type KernelType } from './regression';
 
 export interface EngineConfig {
     videoWidth: number;
@@ -23,6 +23,8 @@ export interface EngineConfig {
     minSamples: number;
     /** Ridge regularisation strength. */
     lambda: number;
+    /** KRR kernel choice. Default 'rbf'. Exposed for the §6 ablation. */
+    kernel: KernelType;
 }
 
 const DEFAULT: EngineConfig = {
@@ -42,6 +44,7 @@ const DEFAULT: EngineConfig = {
     // flooring + target centring in GazeKRR, ill-conditioning is
     // handled at the preprocessing layer and λ can stay small.
     lambda: 1e-3,
+    kernel: 'rbf',
 };
 
 const BLINK_EAR_THRESHOLD = 0.15;
@@ -213,7 +216,7 @@ export class FaceMeshGazeEngine {
         if (this.calibSamples.length < this.cfg.minSamples) return false;
         const X = this.calibSamples.map(s => s.features);
         const targets = this.calibSamples.map(s => s.target);
-        this.krr.fit(X, targets, this.cfg.lambda);
+        this.krr.fit(X, targets, this.cfg.lambda, this.cfg.kernel);
         return true;
     }
 
