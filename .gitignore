@@ -31,3 +31,7 @@ dist-ssr
 paper/
 paper_overleaf/
 paper_overleaf.zip
+paper_MICCAI_overleaf/
+public/kvasir/
+gaze_webcam/
+kvasir_fixation_webcam_*.csv

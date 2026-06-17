@@ -41,7 +41,11 @@ function handleSave(req: IncomingMessage, res: ServerResponse): void {
         return;
     }
 
-    const saveDir = path.resolve(process.cwd(), SAVE_DIR_REL);
+    // Optional target subdirectory (basename-sanitised, confined to project
+    // root). Defaults to gaze_result/; image-gaze capture uses gaze_webcam/.
+    const rawDir = url.searchParams.get('dir') ?? SAVE_DIR_REL;
+    const safeDir = sanitizeFilename(rawDir) || SAVE_DIR_REL;
+    const saveDir = path.resolve(process.cwd(), safeDir);
     try {
         fs.mkdirSync(saveDir, { recursive: true });
     } catch (err) {
