@@ -92,6 +92,8 @@ export class ImageGazeCapture {
     private rows: FixRow[] = [];
     private idx = 0;
     private batchLabel = '';
+    private curName = '';
+    private lastGazeMs = 0;
 
     // current-image state
     private imgEl!: HTMLImageElement;
@@ -191,13 +193,25 @@ export class ImageGazeCapture {
         this.controller.reset();        // fresh I-VT per image
 
         const name = this.images[i];
+        this.curName = name;
         this.imgEl.onload = () => {
             this.imgOnsetMs = performance.now();
-            this.hud.innerHTML = `image <b>${i + 1}</b> / ${this.images.length} &nbsp;·&nbsp; ${name}`;
+            this.renderHud();
             if (this.advanceTimer) clearTimeout(this.advanceTimer);
             this.advanceTimer = window.setTimeout(() => this.advance(), this.cfg.viewMs);
         };
         this.imgEl.src = this.cfg.imageBase + name;
+    }
+
+    /** Top HUD: progress + per-image fixation count + a green/grey dot that
+     *  signals gaze is currently arriving (liveness without showing position,
+     *  so the viewer can't chase a cursor). */
+    private renderHud(): void {
+        const live = performance.now() - this.lastGazeMs < 300;
+        const dot = live ? '<span style="color:#9f9">&#9679; tracking</span>'
+                         : '<span style="color:#e88">&#9679; no gaze</span>';
+        this.hud.innerHTML = `image <b>${this.idx + 1}</b> / ${this.images.length}`
+            + ` &nbsp;·&nbsp; ${this.curName} &nbsp;·&nbsp; ${this.fixIndex} fix &nbsp;·&nbsp; ${dot}`;
     }
 
     private advance(): void {
@@ -208,6 +222,7 @@ export class ImageGazeCapture {
 
     /** Assemble fixations from the I-VT state stream. */
     private onGaze(x: number, y: number, state: 'FIXATION' | 'SACCADE', tMs: number): void {
+        this.lastGazeMs = performance.now();   // liveness for the HUD dot
         if (state === 'FIXATION') {
             if (!this.inFixation) {
                 this.inFixation = true;
@@ -252,6 +267,7 @@ export class ImageGazeCapture {
         const elapsed = performance.now() - this.imgOnsetMs;
         const frac = Math.max(0, Math.min(1, elapsed / this.cfg.viewMs));
         this.bar.style.width = `${frac * 100}%`;
+        this.renderHud();
         this.rafId = requestAnimationFrame(this.tickBar);
     };
 

@@ -588,6 +588,9 @@ window.onload = function() {
     // wired to both avoids an engine-switch code path in the middle of
     // the UI logic.
     const onBlink = (gazeX: number, gazeY: number) => {
+        // Image-gaze capture has its own full-screen overlay; suppress the
+        // blink marker / log so nothing flashes over the image being viewed.
+        if (useImgGaze) return;
         if (currentMode === 'tracker') {
             showBlinkMarker(gazeX, gazeY);
             addBlinkToLog(gazeX, gazeY);
