@@ -334,6 +334,8 @@ A full 16×8 × 3 s run takes ~6.4 minutes, which is too long for debug iteratio
 
 Individual overrides take precedence over `?fast=1`, so you can tune just one axis (e.g. `?fast=1&dwell=2000` = fast grid, longer dwell). CSV metadata records `grid,<cols>x<rows>` and `dwell_ms,<N>` so debug runs are trivially distinguishable from full runs even after the files are renamed.
 
+When `?rows=` or `?cols=` is explicitly set, the run-label auto-gains an `_RxC` suffix (e.g. `benchmark_facemesh_pursuit_3x6_<ts>.csv`) so grid-sweep CSVs land in distinct files without manual renaming. Default-grid runs (8×16 pursuit, 8×12 drift, 4×8 fast) keep their historical filenames.
+
 ### Benchmark task — `?task=sweep` (default) or `?task=drift`
 
 Two task modes share the same overlay, CSV format, and engine plumbing — pick by URL flag. Drift mode is useful for measuring how a calibrated model degrades over wall-clock time; sweep is for static-accuracy snapshots.
@@ -376,6 +378,104 @@ Runs end up in `gaze_result/benchmark_<mode>_<timestamp>.csv` + `gazemap_<mode>_
 | `/?engine=facemesh&coach=0` | FaceMesh | Smooth-pursuit | off | v2 without the positioning gate |
 
 The 2×2 of engine × calibration decomposes the v2 gain: going from row 1 to row 2 isolates the calibration-density contribution, row 1 to row 3 isolates the iris-feature contribution, and row 1 to row 4 is the stacked improvement plus the non-linear KRR head.
+
+### Grid-resolution scaling sweep (paper §6)
+
+Paper §6 sweeps cell pitch from a trivial 1×2 partition to the full 8×16 baseline, holding everything else constant, to trace how measured error scales with protocol resolution. The full URL list and run discipline are below — copy-paste each URL into a fresh tab, reload to start the next run.
+
+**Run discipline** (matches §5 Protocol — do *not* relax between runs):
+
+- **Same face, same seat, same lighting, same single session.** No re-calibration between runs. No seating / lighting / window adjustments mid-session.
+- **One calibration at session start** (smooth-pursuit, the §5 default). All 40 runs reuse it.
+- **Engines interleaved within each grid level** (FM, WG, FM, WG, …) so session drift is absorbed symmetrically across the two engines.
+- **L6 (8×16) is *not* re-run.** Use the existing four-run pursuit baseline in [`gaze_result/`](gaze_result/).
+- Inter-run rest ≥ 30 s; stay seated; DevTools closed throughout.
+
+**Matrix.** 5 new grid levels × 2 engines × 4 runs = 40 sessions. Total wall-clock ≈ 45–50 min (≈ 26 min benchmark + ~30 s calibration per session).
+
+**URL list** (each block = 8 sessions, one grid level; reload page between each):
+
+L1 — 1×2:
+```
+http://localhost:5173/?fast=1&engine=facemesh&rows=1&cols=2
+http://localhost:5173/?fast=1&engine=webgazer&rows=1&cols=2
+http://localhost:5173/?fast=1&engine=facemesh&rows=1&cols=2
+http://localhost:5173/?fast=1&engine=webgazer&rows=1&cols=2
+http://localhost:5173/?fast=1&engine=facemesh&rows=1&cols=2
+http://localhost:5173/?fast=1&engine=webgazer&rows=1&cols=2
+http://localhost:5173/?fast=1&engine=facemesh&rows=1&cols=2
+http://localhost:5173/?fast=1&engine=webgazer&rows=1&cols=2
+```
+
+L2 — 2×4:
+```
+http://localhost:5173/?fast=1&engine=facemesh&rows=2&cols=4
+http://localhost:5173/?fast=1&engine=webgazer&rows=2&cols=4
+http://localhost:5173/?fast=1&engine=facemesh&rows=2&cols=4
+http://localhost:5173/?fast=1&engine=webgazer&rows=2&cols=4
+http://localhost:5173/?fast=1&engine=facemesh&rows=2&cols=4
+http://localhost:5173/?fast=1&engine=webgazer&rows=2&cols=4
+http://localhost:5173/?fast=1&engine=facemesh&rows=2&cols=4
+http://localhost:5173/?fast=1&engine=webgazer&rows=2&cols=4
+```
+
+L3 — 3×6:
+```
+http://localhost:5173/?fast=1&engine=facemesh&rows=3&cols=6
+http://localhost:5173/?fast=1&engine=webgazer&rows=3&cols=6
+http://localhost:5173/?fast=1&engine=facemesh&rows=3&cols=6
+http://localhost:5173/?fast=1&engine=webgazer&rows=3&cols=6
+http://localhost:5173/?fast=1&engine=facemesh&rows=3&cols=6
+http://localhost:5173/?fast=1&engine=webgazer&rows=3&cols=6
+http://localhost:5173/?fast=1&engine=facemesh&rows=3&cols=6
+http://localhost:5173/?fast=1&engine=webgazer&rows=3&cols=6
+```
+
+L4 — 4×8:
+```
+http://localhost:5173/?fast=1&engine=facemesh&rows=4&cols=8
+http://localhost:5173/?fast=1&engine=webgazer&rows=4&cols=8
+http://localhost:5173/?fast=1&engine=facemesh&rows=4&cols=8
+http://localhost:5173/?fast=1&engine=webgazer&rows=4&cols=8
+http://localhost:5173/?fast=1&engine=facemesh&rows=4&cols=8
+http://localhost:5173/?fast=1&engine=webgazer&rows=4&cols=8
+http://localhost:5173/?fast=1&engine=facemesh&rows=4&cols=8
+http://localhost:5173/?fast=1&engine=webgazer&rows=4&cols=8
+```
+
+L5 — 6×12:
+```
+http://localhost:5173/?fast=1&engine=facemesh&rows=6&cols=12
+http://localhost:5173/?fast=1&engine=webgazer&rows=6&cols=12
+http://localhost:5173/?fast=1&engine=facemesh&rows=6&cols=12
+http://localhost:5173/?fast=1&engine=webgazer&rows=6&cols=12
+http://localhost:5173/?fast=1&engine=facemesh&rows=6&cols=12
+http://localhost:5173/?fast=1&engine=webgazer&rows=6&cols=12
+http://localhost:5173/?fast=1&engine=facemesh&rows=6&cols=12
+http://localhost:5173/?fast=1&engine=webgazer&rows=6&cols=12
+```
+
+L6 — 8×16: **skip; reuse existing 4-run pursuit baseline in [`gaze_result/`](gaze_result/).**
+
+CSVs auto-tag with `_RxC` (e.g. `benchmark_facemesh_pursuit_1x2_<ts>.csv`), so the 40 new sessions land in 40 distinct files alongside the L6 baseline without manual renaming. Analysis pulls everything in one pass via the filename pattern.
+
+### Image-gaze capture for GazeMedSeg (paper §8) — `?task=imggaze`
+
+Paper §8 feeds our webcam gaze into [GazeMedSeg](https://github.com/med-air/GazeMedSeg)'s Kvasir-SEG weak-supervision pipeline in place of their EyeLink gaze. This mode shows each Kvasir-SEG image full-screen, runs the online I-VT fixation classifier, and exports fixations in GazeMedSeg's exact CSV schema. Each batch auto-saves to [`gaze_webcam/`](gaze_webcam/) (via the dev save endpoint) as `kvasir_fixation_webcam_pNof4.csv`.
+
+**Knobs:** `?task=imggaze` (mode) · `?parts=N&part=k` (collect the *k*-th of *N* equal batches) · `?view=ms` (per-image free-view, default 6000) · `?n=N` (cap, pilots only).
+
+**Run discipline:** recalibrate each batch; **actively find and fixate the lesion** in each image (this, not the tracker, is what drives localisation quality). 250 images × 6 s ≈ 25 min/batch.
+
+**Full collection (4 batches, run one per session):**
+```
+http://localhost:5173/?fast=1&engine=facemesh&task=imggaze&parts=4&part=1
+http://localhost:5173/?fast=1&engine=facemesh&task=imggaze&parts=4&part=2
+http://localhost:5173/?fast=1&engine=facemesh&task=imggaze&parts=4&part=3
+http://localhost:5173/?fast=1&engine=facemesh&task=imggaze&parts=4&part=4
+```
+
+Then run [`colab/gazemedseg_webcam_dice.ipynb`](colab/gazemedseg_webcam_dice.ipynb) (upload the 4 CSVs, Run all) to generate pseudo-masks, train the U-Net, and read off the Dice. Kvasir-SEG images live under `public/kvasir/` (git-ignored; download from [datasets.simula.no/kvasir-seg](https://datasets.simula.no/kvasir-seg/)).
 
 ### Benchmark analysis scripts — `bench/`
 

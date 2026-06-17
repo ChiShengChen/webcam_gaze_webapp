@@ -10,6 +10,7 @@ import { Benchmark } from './benchmark/benchmark';
 import { FaceMeshGazeEngine } from './gaze/engine';
 import { SmoothPursuit } from './calibration/smoothPursuit';
 import { PositioningCoach } from './calibration/coach';
+import { ImageGazeCapture } from './imggaze/imageGazeCapture';
 
 let currentMode: 'tracker' | 'label' | 'video' = 'tracker';
 let labelMode: LabelMode | null = null;
@@ -214,8 +215,21 @@ const pxPerDegree = Number.isFinite(pxPerDegreeRaw) && pxPerDegreeRaw > 0 ? pxPe
 // Benchmark grid + dwell can be shrunk for faster iteration.
 //   ?fast=1     -> 4x8 grid, 1.5 s dwell (~48 s total vs ~6.4 min default)
 //   ?rows=N, ?cols=M, ?dwell=MS  -> individual overrides (take priority)
-// The mode-tagged filename stays the same; CSV metadata embeds the grid
-// dims so debug runs are self-identifying when comparing side-by-side.
+// When ?rows= or ?cols= is set, the runLabel auto-gains an _RxC suffix so
+// grid-sweep CSVs land in distinct files (e.g. facemesh_pursuit_3x6).
+// Default-grid runs (8x16 pursuit, 8x12 drift, 4x8 fast) keep their
+// historical filenames so older comparisons stay intact.
+//
+// Paper §6 grid-resolution scaling protocol (see README "Grid-resolution
+// scaling sweep" section for the full URL list and run discipline):
+//   6 levels  L1 1x2, L2 2x4, L3 3x6, L4 4x8, L5 6x12, L6 8x16
+//   per (engine, grid): 4 runs at 1.5 s dwell, engines interleaved
+//   (FM,WG,FM,WG,...) inside each grid to attenuate session drift;
+//   L6 reuses the §5 baseline so L1--L5 = 40 new sessions per sweep.
+// Run discipline (matches §5 Protocol -- do NOT relax between runs):
+//   * one user, one session, one calibration at session start;
+//   * fixed posture, seating, lighting, viewing distance, window geom;
+//   * no recalibration between runs within the sweep.
 function intParam(name: string, min: number, max: number): number | null {
     const raw = urlParams.get(name);
     if (!raw) return null;
@@ -233,10 +247,26 @@ const taskMode: 'sweep' | 'drift' =
 const isDrift = taskMode === 'drift';
 const gridRows = intParam('rows', 1, 32) ?? (fastMode ? 4 : isDrift ? 8 : 8);
 const gridCols = intParam('cols', 1, 64) ?? (fastMode ? 8 : isDrift ? 12 : 16);
+// Mark grid as "explicit" only when the user passed ?rows= or ?cols= — so the
+// default condition keeps producing the same filenames as before, and grid
+// sweeps get auto-tagged (e.g. _3x6) without manual renaming.
+const gridExplicit = urlParams.has('rows') || urlParams.has('cols');
 const dwellMs = intParam('dwell', 200, 10000)
     ?? (fastMode ? 1500 : isDrift ? 2000 : 3000);
 const idleMs = intParam('idle', 0, 600000) ?? (isDrift ? 28000 : 0);
 const driftVisits = intParam('visits', 1, 200) ?? 10;
+
+// Image-gaze capture mode (`?task=imggaze`): after the normal calibration
+// flow, show a set of images and record I-VT fixations per image, exporting a
+// GazeMedSeg-format CSV (see src/imggaze/imageGazeCapture.ts). `?n=` caps the
+// image count for pilots; `?view=` sets per-image free-view ms.
+const useImgGaze = urlParams.get('task') === 'imggaze';
+const imgGazeLimit = intParam('n', 1, 2000);
+const imgGazeViewMs = intParam('view', 1000, 60000) ?? 6000;
+// Batched collection: `?parts=4&part=2` runs the 2nd of 4 equal chunks so the
+// full set can be collected across several sessions without fatigue.
+const imgGazeParts = intParam('parts', 1, 50) ?? 4;
+const imgGazePart = intParam('part', 1, 50);
 
 // Mode-tagged label — auto-save filenames embed this so multiple runs
 // in the same dev session land in distinct files in gaze_result/.
@@ -251,6 +281,9 @@ const runLabel = (() => {
     const calib = useSmoothPursuit ? 'pursuit' : '9point';
     const coachTag = (useFaceMesh && !useCoach) ? '-nocoach' : '';
     const taskTag = taskMode === 'drift' ? '_drift' : '';
+    // Grid suffix: only appended when ?rows= or ?cols= is explicitly set, so
+    // default 8×16 / drift 8×12 / fast 4×8 runs keep their historical filenames.
+    const gridTag = gridExplicit ? `_${gridRows}x${gridCols}` : '';
     // Ablation suffix: only appended when at least one knob is off-default,
     // so non-ablation runs keep producing the same filenames as before.
     const ablTags: string[] = [];
@@ -258,7 +291,7 @@ const runLabel = (() => {
     if (ablOneEuroBeta !== 0.007) ablTags.push(`oneB${ablOneEuroBeta}`);
     if (ablKernel !== 'rbf') ablTags.push(`k-${ablKernel}`);
     const ablTag = ablTags.length ? `_abl-${ablTags.join('-')}` : '';
-    return `${engine}_${calib}${coachTag}${taskTag}${ablTag}`;
+    return `${engine}_${calib}${coachTag}${taskTag}${gridTag}${ablTag}`;
 })();
 
 const benchmark = new Benchmark(gazeController, {
@@ -794,7 +827,49 @@ window.onload = function() {
     // 16-col × 8-row Z-pattern sweep, 3 s dwell per cell. Emits a CSV
     // (per-sample + per-cell summary + run metadata) plus a gazemap PNG.
     // Only offered when `import.meta.env.DEV` is true or `?dev=1` is set.
+    // ==================== Image-gaze capture ====================
+    // `?task=imggaze`: after calibration, free-view a set of images and record
+    // I-VT fixations per image, exporting a GazeMedSeg-format CSV that drops
+    // straight into their Kvasir-SEG pipeline in place of the EyeLink gaze.
+    function startImageGazeCapture() {
+        heatmapContainer.style.display = 'none';
+        modeToggle.style.display = 'none';
+        correctionControls.style.display = 'none';
+        blinkLogContainer.style.display = 'none';
+        gazeDot.style.display = 'none';
+        setFacemeshPreviewVisible(false);
+
+        const capture = new ImageGazeCapture(gazeController, {
+            limit: imgGazeLimit,
+            viewMs: imgGazeViewMs,
+            part: imgGazePart,
+            parts: imgGazeParts,
+        });
+        capture.start(async (csv, rowCount, imagesCovered) => {
+            const tag = imgGazePart ? `p${imgGazePart}of${imgGazeParts}` : 'all';
+            const filename = `kvasir_fixation_webcam_${tag}.csv`;
+            // Primary: auto-save into gaze_webcam/ via the dev save endpoint
+            // (same mechanism the benchmark uses for gaze_result/).
+            let savedTo = '';
+            try {
+                const r = await fetch(
+                    `/__benchmark/save?filename=${encodeURIComponent(filename)}&dir=gaze_webcam`,
+                    { method: 'POST', headers: { 'Content-Type': 'text/csv' }, body: csv });
+                if (r.ok) savedTo = (await r.json()).path ?? filename;
+            } catch { /* dev endpoint absent (prod build); fall back to download */ }
+            // Fallback / convenience: also trigger a browser download.
+            const url = URL.createObjectURL(new Blob([csv], { type: 'text/csv' }));
+            const a = document.createElement('a');
+            a.href = url; a.download = filename; a.click();
+            URL.revokeObjectURL(url);
+            alert(`Image-gaze capture done.\n${rowCount} fixations across ${imagesCovered} images.\n` +
+                  (savedTo ? `Saved to ${savedTo}` : `Downloaded ${filename}`));
+        });
+    }
+
     function maybeOfferBenchmark() {
+        // Image-gaze capture takes over after calibration when requested.
+        if (useImgGaze) { startImageGazeCapture(); return; }
         if (!devMode || benchmark.isRunning) return;
         // Defer past the calibration-complete alert so the user actually sees
         // the prompt instead of it queuing behind the alert.
