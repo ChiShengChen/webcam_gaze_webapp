@@ -35,3 +35,5 @@ paper_MICCAI_overleaf/
 public/kvasir/
 gaze_webcam/
 kvasir_fixation_webcam_*.csv
+gazemedseg_webcam_handoff.zip
+email_brat_update.md

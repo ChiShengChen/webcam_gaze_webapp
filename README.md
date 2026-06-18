@@ -387,10 +387,10 @@ Paper §6 sweeps cell pitch from a trivial 1×2 partition to the full 8×16 base
 - **Same face, same seat, same lighting, same single session.** No re-calibration between runs. No seating / lighting / window adjustments mid-session.
 - **One calibration at session start** (smooth-pursuit, the §5 default). All 40 runs reuse it.
 - **Engines interleaved within each grid level** (FM, WG, FM, WG, …) so session drift is absorbed symmetrically across the two engines.
-- **L6 (8×16) is *not* re-run.** Use the existing four-run pursuit baseline in [`gaze_result/`](gaze_result/).
+- **L6 (8×16)** is collected the same way as L1–L5 (4 runs per engine, interleaved).
 - Inter-run rest ≥ 30 s; stay seated; DevTools closed throughout.
 
-**Matrix.** 5 new grid levels × 2 engines × 4 runs = 40 sessions. Total wall-clock ≈ 45–50 min (≈ 26 min benchmark + ~30 s calibration per session).
+**Matrix.** 6 grid levels × 2 engines × 4 runs = 48 sessions. Total wall-clock ≈ 1 h (≈ 26 min benchmark + ~30 s calibration per session; L6 is the longest at 128 cells).
 
 **URL list** (each block = 8 sessions, one grid level; reload page between each):
 
@@ -454,9 +454,19 @@ http://localhost:5173/?fast=1&engine=facemesh&rows=6&cols=12
 http://localhost:5173/?fast=1&engine=webgazer&rows=6&cols=12
 ```
 
-L6 — 8×16: **skip; reuse existing 4-run pursuit baseline in [`gaze_result/`](gaze_result/).**
+L6 — 8×16:
+```
+http://localhost:5173/?fast=1&engine=facemesh&rows=8&cols=16
+http://localhost:5173/?fast=1&engine=webgazer&rows=8&cols=16
+http://localhost:5173/?fast=1&engine=facemesh&rows=8&cols=16
+http://localhost:5173/?fast=1&engine=webgazer&rows=8&cols=16
+http://localhost:5173/?fast=1&engine=facemesh&rows=8&cols=16
+http://localhost:5173/?fast=1&engine=webgazer&rows=8&cols=16
+http://localhost:5173/?fast=1&engine=facemesh&rows=8&cols=16
+http://localhost:5173/?fast=1&engine=webgazer&rows=8&cols=16
+```
 
-CSVs auto-tag with `_RxC` (e.g. `benchmark_facemesh_pursuit_1x2_<ts>.csv`), so the 40 new sessions land in 40 distinct files alongside the L6 baseline without manual renaming. Analysis pulls everything in one pass via the filename pattern.
+CSVs auto-tag with `_RxC` (e.g. `benchmark_facemesh_pursuit_1x2_<ts>.csv`), so the 48 sessions land in 48 distinct files without manual renaming. Analysis pulls everything in one pass via the filename pattern.
 
 ### Image-gaze capture for GazeMedSeg (paper §8) — `?task=imggaze`
 
